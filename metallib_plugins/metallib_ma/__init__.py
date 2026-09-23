@@ -43,6 +43,7 @@ from .ma_release import (
     fits,
     format_kind,
     ma_date,
+    mb_genres,
     narrow_pressings,
     rank_hits,
     title_score,
@@ -310,7 +311,7 @@ def _on_cover(album, result=None, error=None):
 
 BACKGROUND_PRESSING_FETCHES = 4     # background MA lookups for MB albums fetch fewer pressing pages
 MB_RELEASE_FETCHES = 3              # MB release candidates fetched to find one that fits
-MB_INC = ('aliases', 'artist-credits', 'artists', 'isrcs', 'labels', 'media', 'recordings',
+MB_INC = ('aliases', 'artist-credits', 'artists', 'genres', 'isrcs', 'labels', 'media', 'recordings',
           'release-groups')
 
 
@@ -338,6 +339,17 @@ def on_track_built(api, track, metadata, track_node, release_node=None):
     if isinstance(track.album, (MetalArchivesAlbum, ShadowAlbum)):
         return
     set_own_source(track, MUSICBRAINZ, metadata)
+    if release_node:
+        _mb_fix(release_node, track.source_metadata[MUSICBRAINZ])
+
+
+def _mb_fix(release_node, md):
+    # Picard only fills genre when its Genres option is on; the column shows MB's genre regardless
+    # (only present when the release was requested with genres).
+    if 'genre' not in md:
+        genres = mb_genres(release_node)
+        if genres:
+            md['genre'] = genres
 
 
 def on_mb_album(api, album, metadata, release_node):
@@ -440,7 +452,7 @@ def _on_mb_release(album, rest, fetched, document=None, http=None, error=None):
 
 
 def _use_mb_release(album, node, fitted=True):
-    mds = track_metadata(node)
+    mds = track_metadata(node, fix=partial(_mb_fix, node))
 
     def apply():
         n = attach(album, MUSICBRAINZ, mds)

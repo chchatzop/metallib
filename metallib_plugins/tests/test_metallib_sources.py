@@ -110,3 +110,15 @@ class TestShadowAndAttach(PicardTestCase):
         # The MB column carries real MB ids; the album itself still has none.
         self.assertTrue(album.tracks[0].source_metadata['MusicBrainz']['musicbrainz_recordingid'])
         self.assertNotIn('musicbrainz_recordingid', album.tracks[0].metadata)
+
+
+def test_mb_genres_levels():
+    node = {'genres': [], 'release-group': {'genres': [{'name': 'black metal', 'count': 1}]},
+            'artist-credit': [{'artist': {'genres': [{'name': 'thrash metal', 'count': 3}]}}]}
+    assert r.mb_genres(node) == ['Black Metal']                        # release group before artist
+    node['release-group']['genres'] = []
+    node['artist-credit'][0]['artist']['genres'] = [
+        {'name': 'black metal', 'count': 3}, {'name': 'thrash metal', 'count': 3},
+        {'name': 'speed metal', 'count': 1}, {'name': 'metal', 'count': 1}]
+    assert r.mb_genres(node) == ['Black Metal', 'Thrash Metal']       # Abigail's artist genres: top votes only
+    assert r.mb_genres({}) == []

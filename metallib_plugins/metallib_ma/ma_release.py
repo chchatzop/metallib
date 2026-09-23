@@ -288,3 +288,24 @@ def track_count_compatible(a, b):
     if not a or not b:
         return True
     return min(a, b) >= 0.7 * max(a, b)
+
+
+def mb_genres(release_node, limit=3):
+    """Genres for the MusicBrainz column: the release's own, else its release group's, else the
+    release artists' -- the most-voted ones (at least half the top vote), title-cased."""
+    levels = [release_node.get('genres'), (release_node.get('release-group') or {}).get('genres')]
+    artists = []
+    for credit in release_node.get('artist-credit') or []:
+        artists.extend((credit.get('artist') or {}).get('genres') or [])
+    levels.append(artists)
+    for genres in levels:
+        genres = [g for g in genres or [] if g.get('name')]
+        if not genres:
+            continue
+        counts = {}
+        for g in genres:
+            counts[g['name']] = counts.get(g['name'], 0) + (g.get('count') or 1)
+        top = max(counts.values())
+        names = sorted((n for n, c in counts.items() if c >= top / 2), key=lambda n: (-counts[n], n))
+        return [n.title() for n in names[:limit]]
+    return []
