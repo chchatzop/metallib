@@ -122,7 +122,7 @@ def crash_handler(exc: Exception):
         trace = traceback.format_exc()
 
     # Always print to stderr first
-    print("Picard terminated unexpectedly", file=sys.stderr)
+    print("%s terminated unexpectedly" % PICARD_DISPLAY_NAME, file=sys.stderr)
     print(trace, file=sys.stderr)
 
     try:
@@ -153,7 +153,7 @@ def _show_crash_dialog(trace):
     # Write traceback to log file
     logfile = None
     try:
-        with NamedTemporaryFile(suffix='.log', prefix='picard-crash-', delete=False) as f:
+        with NamedTemporaryFile(suffix='.log', prefix='metallib-crash-', delete=False) as f:
             f.write(trace.encode(errors="replace"))
             logfile = f.name
     except:  # noqa: E722,F722 # pylint: disable=bare-except
@@ -165,11 +165,12 @@ def _show_crash_dialog(trace):
 
     msgbox = QMessageBox()
     msgbox.setIcon(QMessageBox.Icon.Critical)
-    msgbox.setWindowTitle("Picard terminated unexpectedly")
+    msgbox.setWindowTitle("%s terminated unexpectedly" % PICARD_DISPLAY_NAME)
     msgbox.setTextFormat(Qt.TextFormat.RichText)
+    # MetalLib: a crash of this fork is not MetaBrainz's to fix -- never send users to their tracker.
     msgbox.setText(
-        'An unexpected error has caused Picard to crash. '
-        'Please report this issue on the <a href="https://tickets.metabrainz.org/projects/PICARD">MusicBrainz bug tracker</a>.'
+        'An unexpected error has caused %s to crash. '
+        'Please send the log file below to the MetalLib developer.' % PICARD_DISPLAY_NAME
     )
     if logfile:
         logfile_url = QUrl.fromLocalFile(logfile)
