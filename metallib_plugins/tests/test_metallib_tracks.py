@@ -532,3 +532,11 @@ def test_dotted_acronyms_are_the_same_title():
               {'title': 'Everybody\u2019s Got a Plan', 'length': s('4:37'), 'number': '4'}]
     res = place(files(('NYC 93', '4:49', '7')), tracks, similarity2)
     assert (res[0]['track'], res[0]['status'], res[0]['reason']) == (0, OK, 'title+duration')
+
+
+def test_spacing_only_title_difference_is_a_title_match():
+    # MusicBrainz lists Anthrax's track as "NYC93"; the file says "NYC 93".
+    tracks = [{'title': 'NYC93', 'length': s('4:49'), 'number': '7'},
+              {'title': 'Everybody\u2019s Got a Plan', 'length': s('4:37'), 'number': '4'}]
+    res = place(files(('NYC 93', '4:49', '7')), tracks, similarity2)
+    assert (res[0]['track'], res[0]['status'], res[0]['reason']) == (0, OK, 'title+duration')

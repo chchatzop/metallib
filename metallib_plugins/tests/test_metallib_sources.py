@@ -37,7 +37,10 @@ def test_pair_refuses_contradicting_lengths():
 
 def test_untitled_pairs_only_on_same_position_and_length():
     assert r.pair_tracks([_t('', 168, 3)], [_t('Breathe', 169, 3)]) == {0: 0}
-    assert r.pair_tracks([_t('', 168, 3)], [_t('Breathe', 169, 4)]) == {}
+    # Same tracklist size and lengths agreeing in order -> paired by position (user rule), even when the
+    # printed numbers differ; with a second track whose lengths do not line up, numbers must agree.
+    assert r.pair_tracks([_t('', 168, 3)], [_t('Breathe', 169, 4)]) == {0: 0}
+    assert r.pair_tracks([_t('', 168, 3), _t('', 400, 4)], [_t('Breathe', 169, 4), _t('X', 200, 5)]) == {}
 
 
 def test_same_title_twice_is_decided_by_position_or_left_out():

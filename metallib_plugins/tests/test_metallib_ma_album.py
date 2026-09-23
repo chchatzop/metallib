@@ -219,3 +219,43 @@ def test_pairing_understands_acronyms():
     sources = [{'title': 'N.Y.C. 93', 'length': 289000, 'disc': '1', 'number': '3'},
                {'title': 'T.O.M.B.', 'length': 271000, 'disc': '2', 'number': '4'}]    # a vinyl's positions
     assert r.pair_tracks(targets, sources) == {0: 1, 1: 0}
+
+
+# Real Discogs master 4348167 (Anthrax "Cursum Perficio") version formats, as the API lists them.
+ANTHRAX_VERSIONS = [
+    {'album_id': 38466573, 'format': 'LP, Album, Limited Edition, Picture Disc', 'catalog': ''},
+    {'album_id': 38472519, 'format': 'Album', 'catalog': ''},
+    {'album_id': 38465898, 'format': 'ALAC, Album, Stereo', 'catalog': ''},
+    {'album_id': 38467437, 'format': 'LP, Album', 'catalog': ''},
+    {'album_id': 38497557, 'format': 'ALAC', 'catalog': ''},
+]
+
+
+def test_web_album_gets_the_digital_discogs_versions():
+    cands, why = r.narrow_pressings(ANTHRAX_VERSIONS, 'Anthrax-Cursum_Perficio-WEB-2026-ENTiTLED', '', '')
+    assert [v['album_id'] for v in cands] == [38465898, 38497557] and why == 'media (Digital)'
+
+
+def test_no_same_media_prefers_cd_like_over_vinyl():
+    cands, _ = r.narrow_pressings([v for v in ANTHRAX_VERSIONS if 'ALAC' not in v['format']],
+                                  'Anthrax-Cursum_Perficio-WEB-2026-ENTiTLED', '', '')
+    assert cands[0]['format'] == 'Album' and 'LP' in cands[-1]['format']
+
+
+def test_spacing_only_titles_pair():
+    assert r.title_score('NYC 93', 'NYC93') == 1.0
+
+
+def test_same_tracklist_pairs_by_position_whatever_the_names():
+    targets = [{'title': 'Target on My Back', 'length': 271000}, {'title': 'Watch It Go', 'length': 343000}]
+    sources = [{'title': 'Totally Different', 'length': 272000}, {'title': 'Also Different', 'length': 342000}]
+    assert r.pair_tracks(targets, sources) == {0: 0, 1: 1}
+
+
+def test_position_is_never_trusted_without_lengths():
+    # Same count but the lengths do not line up (a swap / another pressing): per-track matching instead.
+    targets = [{'title': 'A', 'length': 200000, 'disc': '1', 'number': '1'},
+               {'title': 'B', 'length': 300000, 'disc': '1', 'number': '2'}]
+    sources = [{'title': 'B', 'length': 300000, 'disc': '1', 'number': '1'},
+               {'title': 'A', 'length': 200000, 'disc': '1', 'number': '2'}]
+    assert r.pair_tracks(targets, sources) == {0: 1, 1: 0}

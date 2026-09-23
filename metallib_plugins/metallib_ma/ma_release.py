@@ -37,7 +37,8 @@ def format_kind(ma_format):
     """MA's format text ("2 12\" vinyls (45 RPM)", "Digital", "CD", "Cassette") -> media kind."""
     f = (ma_format or '').lower()
     # Discogs calls digital releases "File" ("File, FLAC, Album"); vinyl "2xLP", tape "Cass".
-    if 'digital' in f or re.search(r'\bfile\b', f):
+    # Discogs version lists often omit "File" and only name the codec ("ALAC, Album, Stereo").
+    if 'digital' in f or re.search(r'\b(?:file|flac|alac|mp3|aac|wav|aiff|ogg|opus)\b', f):
         return DIGITAL
     if 'vinyl' in f or re.search(r'\b(7|10|12)"', f) or re.search(r'\b(?:\d+x)?lp\b', f):
         return VINYL
@@ -120,6 +121,10 @@ def narrow_pressings(versions, folder_name, catalog_tag, media_tag):
         same = [v for v in versions if format_kind(v.get('format')) == hint]
         if same:
             return same, 'media (%s)' % hint
+        # Nothing on the same media: prefer CD-like / unknown formats over vinyl and tape, whose
+        # side-based numbering (A1, B2 -> discs) fits a digital or CD copy worst.
+        rank = {CD: 0, '': 1, DIGITAL: 1, VINYL: 2, TAPE: 3}
+        return sorted(versions, key=lambda v: rank.get(format_kind(v.get('format')), 1)), ''
     return list(versions), ''
 
 
@@ -221,8 +226,8 @@ def title_score(a, b):
     ka, kb = title_key(a), title_key(b)
     if not ka or not kb:
         return 0.0
-    if ka == kb or _initialism(a, b) or _initialism(b, a):
-        return 1.0
+    if ka == kb or ka.replace(' ', '') == kb.replace(' ', '') or _initialism(a, b) or _initialism(b, a):
+        return 1.0                  # also "NYC 93" == "NYC93"
     return difflib.SequenceMatcher(None, ka, kb).ratio()
 
 
@@ -269,6 +274,16 @@ def pair_tracks(targets, sources):
     def delta(a, b):
         la, lb = a.get('length') or 0, b.get('length') or 0
         return abs(la - lb) / 1000.0 if la and lb else None
+
+    # Same pressing, same tracklist (user, 2026-09-23: "if you load a certain album you just load
+    # each of its tracks whatever name they have"): same track count AND every length agrees IN
+    # ORDER -> pair by position, names ignored. Position is never trusted alone: every pair must be
+    # confirmed by its length (the old file-swap bug), and at least half the lengths must be known.
+    if targets and len(targets) == len(sources):
+        deltas = [delta(t, s) for t, s in zip(targets, sources)]
+        known = [d for d in deltas if d is not None]
+        if len(known) * 2 >= len(deltas) and all(d <= PAIR_LEN_OK_S for d in known):
+            return {i: i for i in range(len(targets))}
 
     picks = {}
     for ti, t in enumerate(targets):

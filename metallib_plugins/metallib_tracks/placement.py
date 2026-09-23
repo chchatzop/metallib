@@ -73,6 +73,11 @@ def is_initialism_of(short, long):
         and _initials(long) == acro
 
 
+def _compact(title):
+    """Letters and digits only, lower-cased: "NYC 93" == "NYC93" == "N.Y.C. 93"."""
+    return re.sub(r'[^0-9a-z]+', '', (title or '').lower())
+
+
 def title_similarity(similarity, a, b, raw=False):
     """Best of the raw and the bracket-stripped comparison: "(Bonus Track)", "(Remastered)"
     and similar suffixes must not hide an otherwise identical title. raw=True compares the full
@@ -82,6 +87,8 @@ def title_similarity(similarity, a, b, raw=False):
         return 0.0
     if is_initialism_of(a, b) or is_initialism_of(b, a):
         return 1.0                  # Anthrax "T.O.M.B." is "Target on My Back"; the length still has to agree
+    if _compact(a) == _compact(b):
+        return 1.0                  # only spacing/punctuation differs: "NYC 93" vs MusicBrainz's "NYC93"
     best = similarity(a, b)
     if raw:
         return best
