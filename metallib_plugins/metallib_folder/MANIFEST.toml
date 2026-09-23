@@ -1,0 +1,13 @@
+uuid = "e6a65a4f-7055-495e-97cd-a961229c5533"
+name = "MetalLib Folder"
+authors = ["chchatzop"]
+version = "0.1.0"
+description = "Shows the files Picard hides (nfo, sfv, logs, 0-byte, stray images) and cleans them up reversibly."
+long_description = """
+Right-click an album or cluster -> **Folder contents...**. Junk (anything but audio and images, and
+0-byte files) is moved to .metallib_trash at the root of its drive -- never deleted, always undoable.
+A lone image is renamed to "Artist - Album - 00 - Front.ext". Column: `$folder()`.
+"""
+api = ["3.0"]
+license = "GPL-2.0-or-later"
+categories = ["other"]
