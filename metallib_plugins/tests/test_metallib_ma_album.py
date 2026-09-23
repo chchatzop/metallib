@@ -101,13 +101,19 @@ class TestMetalArchivesAlbumInPicard(PicardTestCase):
         page = ma_client.parse_album_page(ALBUM, '789680')
         node = r.build_release(page, ma_client.parse_versions(VERSIONS)[0], '2019-10-18')
         album = self.plugin.MetalArchivesAlbum(node['id'], node, {'album_id': '789680', 'band_id': '5575',
-                                                                 'cover_url': ''})
+                                                                 'cover_url': '',
+                                                                 'band': {'genre': 'Black Metal', 'country': 'Norway',
+                                                                          'country_code': 'NO'}})
         album.load()
         self.assertTrue(album.loaded, album.errors)
         md = album.metadata
         self.assertEqual((md['album'], md['albumartist'], md['date']), ('The Infernal Pathway', '1349', '2019-10-18'))
         self.assertEqual((md['label'], md['catalognumber'], md['totaldiscs']), ('Season of Mist', 'SOM 532D', '2'))
         self.assertEqual(md['~ma_album_id'], '789680')
+        self.assertEqual((md['genre'], md['~ma_band_country'], md['~ma_band_country_code']),
+                         ('Black Metal', 'Norway', 'NO'))
+        self.assertEqual({t.metadata['genre'] for t in album.tracks}, {'Black Metal'})
+        self.assertEqual({t.metadata['~ma_band_country_code'] for t in album.tracks}, {'NO'})
         got = [(t.metadata['discnumber'], t.metadata['tracknumber'], t.metadata['title'], t.metadata.length)
                for t in album.tracks]
         self.assertEqual(got, [('1', '1', 'Abyssos Antithesis', 329000), ('1', '2', 'Tunnel of Set VIII', 46000),

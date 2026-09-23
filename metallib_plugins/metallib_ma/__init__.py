@@ -94,6 +94,7 @@ class MetalArchivesAlbum(Album):
             self._strip_fake_ids(self._new_metadata)
             self._new_metadata['~ma_album_id'] = self.ma_info['album_id']
             self._new_metadata['~ma_band_id'] = self.ma_info['band_id']
+            self._apply_band(self._new_metadata)
             self._finalize_loading(False)
         except Exception:
             import traceback
@@ -104,7 +105,19 @@ class MetalArchivesAlbum(Album):
         track = super()._finalize_loading_track(*args, **kwargs)
         self._strip_fake_ids(track.metadata)
         track.metadata['~ma_album_id'] = self.ma_info['album_id']
+        self._apply_band(track.metadata)
         return track
+
+    def _apply_band(self, metadata):
+        # Band page facts. Genre becomes the genre tag (MA's wording, e.g. "Black Metal");
+        # the country is the BAND's, not the release's, so it is only exposed to scripts
+        # (%_ma_band_country% "Italy", %_ma_band_country_code% "IT" -- as in "Aghar (IT)").
+        band = self.ma_info.get('band') or {}
+        if band.get('genre'):
+            metadata['genre'] = band['genre']
+        for key in ('country', 'country_code', 'status', 'formed'):
+            if band.get(key):
+                metadata['~ma_band_' + key] = band[key]
 
     @staticmethod
     def _strip_fake_ids(metadata):
@@ -149,8 +162,13 @@ def _resolve(hit, local):
         lengths = [t['length'] for t in page['tracks']]
         checked.append({'version': v, 'page': page, 'fits': fits(lengths, local['lengths'])})
     original = min((ma_date(v['date']) for v in versions if ma_date(v['date'])), default='')
+    try:
+        band = client().band(base['band_id'] or hit['band_id'])
+    except MAError:
+        band = {}
+    band['country_code'] = hit.get('band_country', '')
     return {'base': base, 'versions': versions, 'checked': checked, 'narrowed_by': why,
-            'original_date': original, 'more': len(candidates) > MAX_PRESSING_FETCHES}
+            'original_date': original, 'more': len(candidates) > MAX_PRESSING_FETCHES, 'band': band}
 
 
 # ------------------------------------------------------------------------------------------------
@@ -225,10 +243,10 @@ def _on_resolved(cluster, local, hit, result=None, error=None):
         if i is None:
             return
         chosen = result['checked'][i]
-    _build_album(cluster, local, hit, chosen, result['original_date'])
+    _build_album(cluster, local, hit, chosen, result['original_date'], result.get('band') or {})
 
 
-def _build_album(cluster, local, hit, chosen, original_date):
+def _build_album(cluster, local, hit, chosen, original_date, band):
     tagger = _api.tagger
     page, version = chosen['page'], chosen['version']
     node = build_release(page, version, original_date)
@@ -237,7 +255,7 @@ def _build_album(cluster, local, hit, chosen, original_date):
     if album is None:
         album = MetalArchivesAlbum(aid, node, {
             'album_id': page['album_id'], 'band_id': page['band_id'] or hit['band_id'],
-            'cover_url': page['cover_url']})
+            'cover_url': page['cover_url'], 'band': band})
         tagger.albums[aid] = album
         tagger.album_added.emit(album)
     # Files first (they wait in "unmatched" while not loaded), then load: the load's own
@@ -305,3 +323,10 @@ def enable(api: PluginApi) -> None:
     global _api
     _api = api
     api.register_cluster_action(LoadFromMetalArchives)
+    for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),
+                      ('_ma_band_country_code', 'Band country code from Metal Archives, e.g. "IT".'),
+                      ('_ma_band_status', 'Band status from Metal Archives, e.g. "Active".'),
+                      ('_ma_band_formed', 'Year the band formed, from Metal Archives.'),
+                      ('_ma_album_id', 'Metal Archives album (pressing) id.'),
+                      ('_ma_band_id', 'Metal Archives band id.')):
+        api.register_script_variable(name, documentation=doc)
