@@ -41,6 +41,7 @@ from .ma_release import (
     auto_pick,
     build_release,
     fits,
+    format_kind,
     ma_date,
     narrow_pressings,
     rank_hits,
@@ -397,13 +398,21 @@ def start_mb_lookup(album, band, title):
 def _on_mb_search(album, band, title, count, document=None, http=None, error=None):
     if error or not document:
         return
+    # Several MB releases usually share a tracklist (CD, reissues, digital), so durations alone
+    # cannot tell them apart: prefer the one on the MA pressing's media, then its year.
+    want_media = format_kind(album.metadata['media'])
+    want_year = (album.metadata['date'] or '')[:4]
     cands = []
     for r in document.get('releases') or []:
         credit = ''.join(c.get('name', '') + c.get('joinphrase', '') for c in r.get('artist-credit') or [])
         n = r.get('track-count') or sum(m.get('track-count') or 0 for m in r.get('media') or [])
         score = title_score(r.get('title'), title)
         if score >= 0.8 and title_score(credit, band) >= 0.8 and track_count_compatible(n, count):
-            cands.append((score + (0.1 if n == count else 0), r['id']))
+            media = {format_kind(m.get('format')) for m in r.get('media') or []}
+            score += 0.1 if n == count else 0
+            score += 0.3 if want_media and want_media in media else 0
+            score += 0.2 if want_year and (r.get('date') or '')[:4] == want_year else 0
+            cands.append((score, r['id']))
     cands.sort(key=lambda c: -c[0])
     ids = [rid for _, rid in cands[:MB_RELEASE_FETCHES]]
     if ids:
