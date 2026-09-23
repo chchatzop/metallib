@@ -233,3 +233,58 @@ def auto_pick(ranked):
     if best >= 0.95 and runner_up < best - 0.1:
         return ranked[0][1]
     return None
+
+
+# -- pairing one release's tracks with another's (for the per-source columns) --------------------
+
+PAIR_TITLE = 0.8     # title score that pairs two tracks on its own (with lengths not contradicting)
+PAIR_LEN_OK_S = 5    # lengths this close agree
+PAIR_LEN_BAD_S = 10  # lengths further apart contradict
+
+
+def pair_tracks(targets, sources):
+    """One-to-one pairing of `targets` with `sources`, both lists of {title, length (ms, 0 =
+    unknown), disc, number}. Returns {target index: source index}; a target with no clear partner
+    is simply left out -- never guessed.
+
+    A pair needs a matching title whose lengths do not contradict, or -- for untitled tracks --
+    the same disc/number AND agreeing lengths. Ties are broken by disc/number; still tied -> none.
+    """
+    def delta(a, b):
+        la, lb = a.get('length') or 0, b.get('length') or 0
+        return abs(la - lb) / 1000.0 if la and lb else None
+
+    picks = {}
+    for ti, t in enumerate(targets):
+        cands = []
+        for si, s in enumerate(sources):
+            d = delta(t, s)
+            if d is not None and d > PAIR_LEN_BAD_S:
+                continue
+            if title_score(t.get('title'), s.get('title')) >= PAIR_TITLE:
+                cands.append(si)
+        if not cands:
+            same = [si for si, s in enumerate(sources)
+                    if (s.get('disc'), s.get('number')) == (t.get('disc'), t.get('number'))
+                    and delta(t, s) is not None and delta(t, s) <= PAIR_LEN_OK_S]
+            cands = same
+        if len(cands) > 1:
+            same_pos = [si for si in cands
+                        if (sources[si].get('disc'), sources[si].get('number')) == (t.get('disc'), t.get('number'))]
+            cands = same_pos if len(same_pos) == 1 else []
+        if len(cands) == 1:
+            picks[ti] = cands[0]
+    # One-to-one: a source claimed by two targets pairs with neither.
+    claimed = {}
+    for ti, si in picks.items():
+        claimed.setdefault(si, []).append(ti)
+    return {ti: si for ti, si in picks.items() if len(claimed[si]) == 1}
+
+
+def track_count_compatible(a, b):
+    """Port of full_program _mb_track_count_compatible: the smaller count must be >= 70% of the
+    larger (a bonus/deluxe edition still fits, an EP vs an album does not). Unknown -> True."""
+    a, b = int(a or 0), int(b or 0)
+    if not a or not b:
+        return True
+    return min(a, b) >= 0.7 * max(a, b)

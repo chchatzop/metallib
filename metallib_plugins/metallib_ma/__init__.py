@@ -44,6 +44,16 @@ from .ma_release import (
     ma_date,
     narrow_pressings,
     rank_hits,
+    title_score,
+    track_count_compatible,
+)
+from .source_columns import (
+    METAL_ARCHIVES,
+    MUSICBRAINZ,
+    ShadowAlbum,
+    attach,
+    set_own_source,
+    track_metadata,
 )
 
 
@@ -156,7 +166,7 @@ def _search(band, album):
     return hits
 
 
-def _resolve(hit, local):
+def _resolve(hit, local, max_fetches=MAX_PRESSING_FETCHES):
     """Fetch the album, its versions and (some of) the pressing pages; decide the pressing."""
     base = client().album(hit['album_id'])
     try:
@@ -168,7 +178,7 @@ def _resolve(hit, local):
                      'catalog': base['catalog'], 'format': base['format'], 'desc': ''}]
     candidates, why = narrow_pressings(versions, local['folder'], local['catalog'], local['media'])
     checked = []
-    for v in candidates[:MAX_PRESSING_FETCHES]:
+    for v in candidates[:max_fetches]:
         page = base if v['album_id'] == base['album_id'] else client().album(v['album_id'])
         lengths = [t['length'] for t in page['tracks']]
         checked.append({'version': v, 'page': page, 'fits': fits(lengths, local['lengths'])})
@@ -179,7 +189,7 @@ def _resolve(hit, local):
         band = {}
     band['country_code'] = hit.get('band_country', '')
     return {'base': base, 'versions': versions, 'checked': checked, 'narrowed_by': why,
-            'original_date': original, 'more': len(candidates) > MAX_PRESSING_FETCHES, 'band': band}
+            'original_date': original, 'more': len(candidates) > max_fetches, 'band': band}
 
 
 # ------------------------------------------------------------------------------------------------
@@ -276,6 +286,7 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
         album.load()
     _status('loaded "%s" (%s %s) from Metal Archives' % (page['album'], version.get('format', ''),
                                                           version.get('catalog', '')))
+    start_mb_lookup(album, page['band'], page['album'])
     if page['cover_url']:
         thread.run_task(partial(client().fetch_bytes, page['cover_url']), partial(_on_cover, album))
 
@@ -290,6 +301,144 @@ def _on_cover(album, result=None, error=None):
     )
     image = CoverArtImage(url=album.ma_info['cover_url'], types=['front'], data=result)
     CoverArtSetter(CoverArtSetterMode.REPLACE, image, album, update_orig=True).set_coverart()
+
+
+# ------------------------------------------------------------------------------------------------
+# The other source for the side-by-side columns
+# ------------------------------------------------------------------------------------------------
+
+BACKGROUND_PRESSING_FETCHES = 4     # background MA lookups for MB albums fetch fewer pressing pages
+MB_RELEASE_FETCHES = 3              # MB release candidates fetched to find one that fits
+MB_INC = ('aliases', 'artist-credits', 'artists', 'isrcs', 'labels', 'media', 'recordings',
+          'release-groups')
+
+
+def _refresh_panel():
+    box = getattr(_api.tagger.window, 'metadata_box', None)
+    if box is not None:
+        box.update()
+
+
+def _when_loaded(album, func, tries=200):
+    """Run func() once `album` finished loading (it may still be loading when a lookup returns)."""
+    if album.id not in _api.tagger.albums:
+        return
+    if album.loaded:
+        func()
+    elif tries:
+        from PyQt6 import QtCore
+        QtCore.QTimer.singleShot(300, partial(_when_loaded, album, func, tries - 1))
+
+
+# -- MusicBrainz album: its own values + Metal Archives in the background ------------------------
+
+def on_track_built(api, track, metadata, track_node, release_node=None):
+    # What MusicBrainz said, before scripts or the user change anything: the MB column.
+    if isinstance(track.album, (MetalArchivesAlbum, ShadowAlbum)):
+        return
+    set_own_source(track, MUSICBRAINZ, metadata)
+
+
+def on_mb_album(api, album, metadata, release_node):
+    if isinstance(album, (MetalArchivesAlbum, ShadowAlbum)):
+        return
+    band, title = metadata['albumartist'], metadata['album']
+    media = release_node.get('media') or []
+    local = {'folder': '', 'catalog': metadata['catalognumber'],
+             'media': (media[0].get('format') or '') if media else '',
+             'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
+    thread.run_task(partial(_background_ma, band, title, local), partial(_on_background_ma, album))
+
+
+def _background_ma(band, title, local):
+    """Thread: find the MA album and pressing without asking anything."""
+    pick = auto_pick(rank_hits(_search(band, title), band, title))
+    if pick is None:
+        return None
+    result = _resolve(pick, local, max_fetches=BACKGROUND_PRESSING_FETCHES)
+    fitting = [c for c in result['checked'] if c['fits']]
+    chosen = fitting[0] if fitting else (result['checked'][0] if result['checked'] else None)
+    return {'hit': pick, 'result': result, 'chosen': chosen} if chosen else None
+
+
+def _on_background_ma(album, result=None, error=None):
+    if error or not result:
+        if error:
+            _api.logger.warning("background Metal Archives lookup failed: %s", error)
+        return
+    page, version = result['chosen']['page'], result['chosen']['version']
+    node = build_release(page, version, result['result']['original_date'])
+    band = dict(result['result'].get('band') or {})
+    mds = track_metadata(node, fix=partial(_ma_fix, page['album_id'], band))
+
+    def apply():
+        n = attach(album, METAL_ARCHIVES, mds)
+        _status('Metal Archives: "%s" (%s) paired with %d of %d tracks'
+                % (page['album'], version.get('format', ''), n, len(album.tracks)))
+        _refresh_panel()
+    _when_loaded(album, apply)
+
+
+def _ma_fix(ma_album_id, band, md):
+    MetalArchivesAlbum._strip_fake_ids(md)
+    md['~ma_album_id'] = ma_album_id
+    if band.get('genre'):
+        md['genre'] = band['genre']
+
+
+# -- Metal Archives album: find the same release on MusicBrainz ---------------------------------
+
+def start_mb_lookup(album, band, title):
+    count = len(album.tracks) or sum(len(m.get('tracks') or []) for m in album._ma_node.get('media') or [])
+    _api.tagger.mb_api.find_releases(partial(_on_mb_search, album, band, title, count),
+                                     artist=band, release=title, limit=10)
+
+
+def _on_mb_search(album, band, title, count, document=None, http=None, error=None):
+    if error or not document:
+        return
+    cands = []
+    for r in document.get('releases') or []:
+        credit = ''.join(c.get('name', '') + c.get('joinphrase', '') for c in r.get('artist-credit') or [])
+        n = r.get('track-count') or sum(m.get('track-count') or 0 for m in r.get('media') or [])
+        score = title_score(r.get('title'), title)
+        if score >= 0.8 and title_score(credit, band) >= 0.8 and track_count_compatible(n, count):
+            cands.append((score + (0.1 if n == count else 0), r['id']))
+    cands.sort(key=lambda c: -c[0])
+    ids = [rid for _, rid in cands[:MB_RELEASE_FETCHES]]
+    if ids:
+        _fetch_mb_release(album, ids, [])
+    else:
+        _status('MusicBrainz has no release matching "%s" by %s' % (title, band))
+
+
+def _fetch_mb_release(album, ids, fetched):
+    _api.tagger.mb_api.get_release_by_id(ids[0], partial(_on_mb_release, album, ids[1:], fetched), inc=MB_INC)
+
+
+def _on_mb_release(album, rest, fetched, document=None, http=None, error=None):
+    if not error and document:
+        fetched.append(document)
+        album_lengths = [round((t.metadata.length or 0) / 1000) for t in album.tracks]
+        node_lengths = [round((t.get('length') or 0) / 1000)
+                        for m in document.get('media') or [] for t in m.get('tracks') or []]
+        if fits(node_lengths, album_lengths):
+            return _use_mb_release(album, document)
+    if rest:
+        return _fetch_mb_release(album, rest, fetched)
+    if fetched:
+        _use_mb_release(album, fetched[0], fitted=False)
+
+
+def _use_mb_release(album, node, fitted=True):
+    mds = track_metadata(node)
+
+    def apply():
+        n = attach(album, MUSICBRAINZ, mds)
+        _status('MusicBrainz: "%s" paired with %d of %d tracks%s'
+                % (node.get('title'), n, len(album.tracks), '' if fitted else ' (no exact pressing fit)'))
+        _refresh_panel()
+    _when_loaded(album, apply)
 
 
 def _pick(title, headers, rows, preselect=0):
@@ -334,6 +483,8 @@ def enable(api: PluginApi) -> None:
     global _api
     _api = api
     api.register_cluster_action(LoadFromMetalArchives)
+    api.register_track_metadata_processor(on_track_built)
+    api.register_album_metadata_processor(on_mb_album)
     for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),
                       ('_ma_band_country_code', 'Band country code from Metal Archives, e.g. "IT".'),
                       ('_ma_band_status', 'Band status from Metal Archives, e.g. "Active".'),
