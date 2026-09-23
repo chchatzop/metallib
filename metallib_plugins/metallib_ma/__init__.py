@@ -699,13 +699,13 @@ def _on_discogs(album, result=None, error=None):
         _status('Discogs: no release clearly matching "%s"' % album.metadata['album'])
         return
     versions, result = result['versions'], result['release']
-    lengths = pressings_panel.local_info(album)['lengths']
-    pressings_panel.record(album, DISCOGS, from_discogs(versions) + [_dg_release_candidate(result, lengths)],
-                           result['id'])
     built = build_node(result)
     mds = track_metadata(built['node'], fix=partial(_dg_fix, built))
     n = attach(album, DISCOGS, mds)
     apply_rules(album)
+    lengths = pressings_panel.local_info(album)['lengths']
+    pressings_panel.record(album, DISCOGS, from_discogs(versions) + [_dg_release_candidate(result, lengths)],
+                           result['id'])
     _status('Discogs: "%s" (%s) paired with %d of %d tracks'
             % (result.get('title'), result.get('id'), n, len(album.tracks)))
     _refresh_panel()

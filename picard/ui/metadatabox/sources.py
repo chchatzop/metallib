@@ -89,6 +89,21 @@ def collect(objects, tag_names):
     return result
 
 
+LABEL_TAG = '~source_label'   # hidden tag in a source's Metadata: what it shows, e.g. the pressing
+
+
+def labels(objects):
+    """-> {source name: label} for the column headers: the source's LABEL_TAG when every object
+    that has the source agrees, "several" when they differ; sources without a label are left out."""
+    seen = {}
+    for obj in objects:
+        for name, md in object_sources(obj).items():
+            label = md[LABEL_TAG] if LABEL_TAG in md else ''
+            if label:
+                seen.setdefault(name, set()).add(label)
+    return {name: (next(iter(values)) if len(values) == 1 else 'several') for name, values in seen.items()}
+
+
 def use_source_value(objects, source, tag, apply_tag_values):
     """Copy each object's own value from `source` for `tag` into its metadata (New Value).
     Returns the objects that changed. Objects without that source/tag are left alone."""

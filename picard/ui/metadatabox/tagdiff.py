@@ -217,7 +217,7 @@ class TagDiff:
     REMOVED_VALUE = 'removed'
 
     __slots__ = ('tag_names', 'new', 'old', 'status', 'objects', 'tag_ne_handlers', 'removed_tags', 'diff_html',
-                 'sources', 'extra_tags')
+                 'sources', 'extra_tags', 'source_labels')
 
     def __init__(self, max_length_diff=2):
         """
@@ -236,6 +236,7 @@ class TagDiff:
         self.diff_html = {}
         self.sources = {}  # MetalLib: {source name: {tag: values}}, see metadatabox/sources.py
         self.extra_tags = set()  # MetalLib: rows shown even when neither old nor new has the tag
+        self.source_labels = {}  # MetalLib: {source name: what it shows, e.g. the pressing}
         self.tag_ne_handlers = defaultdict(lambda: lambda old, new: old != new)
         # handling the special case of '~length'
         max_length_delta_ms = max_length_diff * 1000

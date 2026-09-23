@@ -24,6 +24,7 @@ from picard.util import thread
 from .pressings import (
     describe,
     rank,
+    short_label,
 )
 
 
@@ -72,6 +73,7 @@ def record(album, source, items, chosen=None, extra=None, fill=True):
     st['items'] = list(known.values())
     if chosen is not None:
         st['chosen'] = str(chosen)
+    _label_column(album, source)
     if extra:
         st['extra'].update(extra)
     if _api is not None:
@@ -95,7 +97,28 @@ def note(album, source, cid, track_count=None, fits=None):
 
 def set_chosen(album, source, cid):
     state(album)[source]['chosen'] = str(cid)
+    _label_column(album, source)
     refresh(album)
+
+
+LABEL_TAG = '~source_label'     # read by the tag panel for the column header (metadatabox/sources.py)
+
+
+def _label_column(album, source):
+    """Name the shown pressing in the source's column header."""
+    st = state(album)[source]
+    c = next((c for c in st['items'] if c['id'] == st['chosen']), None)
+    label = short_label(c) if c else ''
+    changed = False
+    for track in album.tracks:
+        md = (getattr(track, 'source_metadata', None) or {}).get(source)
+        if md is not None and label and md[LABEL_TAG] != label:
+            md[LABEL_TAG] = label
+            changed = True
+    if changed and _api is not None:
+        box = getattr(_api.tagger.window, 'metadata_box', None)
+        if box is not None:
+            box.update()
 
 
 # -- background fill: track count + length fit ---------------------------------------------------------

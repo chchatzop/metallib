@@ -338,3 +338,29 @@ def test_pressings_panel_record_merges_and_notes():
     assert panel.local_info(album)['lengths'] == [200, 300]
     panel.set_chosen(album, 'MusicBrainz', 'b')
     assert panel.state(album)['MusicBrainz']['chosen'] == 'b'
+
+
+def test_pressings_short_label_for_column_header():
+    p = _pressings()
+    assert p.short_label(p.candidate('MusicBrainz', 'x', '2019-10-18', 'CD', 'Season of Mist', 'SOM532B', 'XE')) == \
+        'CD · SOM532B · 2019 · XE'
+    assert p.short_label(p.candidate('Metal Archives', 1, '', 'Digital')) == 'Digital'
+
+
+def test_pair_by_position_when_a_differing_length_has_the_same_title():
+    # 1349 Infernal Pathway: the digital bonus track is 4:54, the CD's is 5:12 -- still the same slot.
+    album = [{'title': 'Dødskamp', 'length': 300000, 'disc': '1', 'number': '1'},
+             {'title': 'Stand Tall in Fire', 'length': 489000, 'disc': '1', 'number': '2'},
+             {'title': 'Dødskamp (Norwegian version) (Bonus Track)', 'length': 294000, 'disc': '1', 'number': '3'}]
+    cd = [{'title': 'Dødskamp', 'length': 300600, 'disc': '1', 'number': '1'},
+          {'title': 'Stand Tall in Fire', 'length': 489346, 'disc': '1', 'number': '2'},
+          {'title': 'Dødskamp (Norwegian version)', 'length': 312106, 'disc': '1', 'number': '3'}]
+    assert r.pair_tracks(album, cd) == {0: 0, 1: 1, 2: 2}
+    # A differing length with a DIFFERENT title is not the same slot: no position pairing.
+    other = [dict(t) for t in cd]
+    other[2]['title'] = 'Something Else'
+    assert 2 not in r.pair_tracks(album, other)
+
+
+def test_title_key_ignores_bonus_annotation():
+    assert r.title_key('Hell (Bonus Track)') == r.title_key('Hell') == r.title_key('Hell [bonus]')

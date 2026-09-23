@@ -199,11 +199,16 @@ def build_release(album, pressing, original_date=''):
 _DOTTED_RE = re.compile(r'(?<![A-Za-z0-9])((?:[A-Za-z0-9]\.){2,}[A-Za-z0-9]?)\.?(?![A-Za-z0-9])')
 
 
+_BONUS_RE = re.compile(r'\s*[(\[]\s*bonus(?:\s+track)?\s*[)\]]\s*$', re.I)
+
+
 def title_key(title):
     """Fold spelling variants of one title together: case, accents, "&"/"and"/"+", punctuation,
     a leading "The", dotted acronyms ("N.Y.C. 93" == "NYC 93").
-    "Intercourse And Lust" == "Intercourse & Lust"."""
-    s = _DOTTED_RE.sub(lambda m: m.group(1).replace('.', ''), title or '')
+    "Intercourse And Lust" == "Intercourse & Lust". A trailing "(Bonus Track)" is an annotation
+    (MetalLib adds it from MA), not part of the title."""
+    s = _BONUS_RE.sub('', title or '')
+    s = _DOTTED_RE.sub(lambda m: m.group(1).replace('.', ''), s)
     s = unicodedata.normalize('NFKD', s).lower()
     s = ''.join(c for c in s if not unicodedata.combining(c))
     s = re.sub(r'\s*[&+]\s*', ' and ', s)
@@ -276,14 +281,21 @@ def pair_tracks(targets, sources):
         return abs(la - lb) / 1000.0 if la and lb else None
 
     # Same pressing, same tracklist (user, 2026-09-23: "if you load a certain album you just load
-    # each of its tracks whatever name they have"): same track count AND every length agrees IN
-    # ORDER -> pair by position, names ignored. Position is never trusted alone: every pair must be
-    # confirmed by its length (the old file-swap bug), and at least half the lengths must be known.
+    # each of its tracks whatever name they have"): same track count AND every position confirmed
+    # IN ORDER -> pair by position. Position is never trusted alone (the old file-swap bug): each
+    # pair is confirmed by its length, or -- where the lengths differ (another mix of a bonus track)
+    # -- by the same title; and at least half the positions are confirmed by length.
     if targets and len(targets) == len(sources):
-        deltas = [delta(t, s) for t, s in zip(targets, sources)]
-        known = [d for d in deltas if d is not None]
-        if len(known) * 2 >= len(deltas) and all(d <= PAIR_LEN_OK_S for d in known):
-            return {i: i for i in range(len(targets))}
+        by_length = 0
+        for t, s in zip(targets, sources):
+            d = delta(t, s)
+            if d is not None and d <= PAIR_LEN_OK_S:
+                by_length += 1
+            elif d is not None and title_score(t.get('title'), s.get('title')) < PAIR_TITLE:
+                break
+        else:
+            if by_length * 2 >= len(targets):
+                return {i: i for i in range(len(targets))}
 
     picks = {}
     for ti, t in enumerate(targets):

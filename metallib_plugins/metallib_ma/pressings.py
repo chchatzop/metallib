@@ -112,3 +112,8 @@ def from_discogs(versions):
     return [candidate('Discogs', v['id'], v.get('released'), v.get('format'), v.get('label'), v.get('catno'),
                       v.get('country'))
             for v in versions if v.get('id')]
+
+
+def short_label(c):
+    """What a source column shows, for its header: "CD · SOM 532B · 2019 · XE"."""
+    return ' · '.join(p for p in (c['format'], c['catalog'], c['date'][:4], c['country']) if p)

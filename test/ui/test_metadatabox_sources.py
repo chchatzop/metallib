@@ -20,6 +20,8 @@
 
 """MetalLib: per-source columns in the metadata box (picard/ui/metadatabox/sources.py)."""
 
+from unittest.mock import MagicMock
+
 from PyQt6 import QtWidgets
 
 from test.picardtestcase import PicardTestCase
@@ -107,6 +109,7 @@ class _Box(QtWidgets.QTableWidget):
     def __init__(self):
         super().__init__(1, 3)
         self._source_names = []
+        self._source_headers = []
 
     def get_item(self, row, column):
         item = self.item(row, column)
@@ -137,6 +140,27 @@ class TestSourceColumns(PicardTestCase):
 
         box._set_source_columns([])
         self.assertEqual(box.columnCount(), 3)
+
+    def test_header_names_what_the_source_shows(self):
+        box = _Box()
+        box._set_source_columns(['MusicBrainz', 'Metal Archives'], {'Metal Archives': 'CD · SOM 532B · 2019'})
+        self.assertEqual([box.horizontalHeaderItem(c).text() for c in (3, 4)],
+                         ['MusicBrainz', 'Metal Archives\nCD · SOM 532B · 2019'])
+        box._set_source_columns(['MusicBrainz', 'Metal Archives'], {'Metal Archives': 'Digital · 2019'})
+        self.assertEqual(box.horizontalHeaderItem(4).text(), 'Metal Archives\nDigital · 2019')
+
+    def test_labels_agree_or_several(self):
+        def obj(label):
+            md = Metadata()
+            md['title'] = 'x'
+            if label:
+                md[sources.LABEL_TAG] = label
+            o = MagicMock(spec=['source_metadata'])
+            o.source_metadata = {'Metal Archives': md, 'MusicBrainz': Metadata(title='x')}
+            return o
+        self.assertEqual(sources.labels([obj('CD'), obj('CD')]), {'Metal Archives': 'CD'})
+        self.assertEqual(sources.labels([obj('CD'), obj('LP')]), {'Metal Archives': 'several'})
+        self.assertEqual(sources.labels([obj('')]), {})
 
     def test_different_values_placeholder(self):
         box = _Box()

@@ -324,6 +324,7 @@ class MetadataBox(QtWidgets.QTableWidget):
         self.setColumnCount(3)
         self.setHorizontalHeaderLabels((_("Tag"), _("Original Value"), _("New Value")))
         self._source_names = []     # MetalLib: extra read-only columns, one per metadata source
+        self._source_headers = []
         self.cellDoubleClicked.connect(self._source_cell_double_clicked)
         self.horizontalHeader().setStretchLastSection(True)
         self.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
@@ -810,12 +811,21 @@ class MetadataBox(QtWidgets.QTableWidget):
 
     # -- MetalLib: per-source columns (see sources.py) ----------------------------------------
 
-    def _set_source_columns(self, names):
-        if names == self._source_names:
+    def _set_source_columns(self, names, labels=None):
+        # Header: the source's name, and below it what it shows (e.g. the pressing) when known.
+        labels = labels or {}
+        headers = [name + ('\n' + labels[name] if labels.get(name) else '') for name in names]
+        if (names, headers) == (self._source_names, self._source_headers):
             return
-        self._source_names = names
+        self._source_names, self._source_headers = names, headers
         self.setColumnCount(3 + len(names))
-        self.setHorizontalHeaderLabels([_("Tag"), _("Original Value"), _("New Value")] + names)
+        self.setHorizontalHeaderLabels([_("Tag"), _("Original Value"), _("New Value")] + headers)
+        for i, name in enumerate(names):
+            item = self.horizontalHeaderItem(self.COLUMN_NEW + 1 + i)
+            if item is not None:
+                item.setToolTip(headers[i])
+                # Left-aligned: a narrow column cuts the end of the label, not both ends.
+                item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
 
     def _source_of_column(self, column):
         index = column - (self.COLUMN_NEW + 1)
@@ -1044,7 +1054,9 @@ class MetadataBox(QtWidgets.QTableWidget):
         tag_diff.extra_tags = metallib_sources.source_tag_names(metallib_sources.source_objects(files, tracks))
         tag_diff.update_tag_names(config.persist['show_changes_first'], top_tags)
         self._compute_diff_html(tag_diff, diff_colors)
-        tag_diff.sources = metallib_sources.collect(metallib_sources.source_objects(files, tracks), tag_diff.tag_names)
+        objects = metallib_sources.source_objects(files, tracks)
+        tag_diff.sources = metallib_sources.collect(objects, tag_diff.tag_names)
+        tag_diff.source_labels = metallib_sources.labels(objects)
         return tag_diff
 
     def _add_files_to_tag_diff(self, files, tag_diff, config, top_tags):
@@ -1169,11 +1181,12 @@ class MetadataBox(QtWidgets.QTableWidget):
 
         if self.tag_diff is None:
             self.setRowCount(0)
-            self._set_source_columns([])
+            self._set_source_columns([], {})
             return
 
         self.setRowCount(len(self.tag_diff.tag_names))
-        self._set_source_columns(list(getattr(self.tag_diff, 'sources', {})))
+        self._set_source_columns(list(getattr(self.tag_diff, 'sources', {})),
+                                 getattr(self.tag_diff, 'source_labels', {}))
 
         readonly_item_flags = QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled
         editable_item_flags = readonly_item_flags | QtCore.Qt.ItemFlag.ItemIsEditable
