@@ -50,6 +50,7 @@ from .ma_release import (
     title_score,
     track_count_compatible,
 )
+from .rules import choose
 from .source_columns import (
     METAL_ARCHIVES,
     MUSICBRAINZ,
@@ -392,6 +393,7 @@ def _on_background_ma(album, result=None, error=None):
 
     def apply():
         n = attach(album, METAL_ARCHIVES, mds)
+        apply_rules(album)
         _status('Metal Archives: "%s" (%s) paired with %d of %d tracks'
                 % (page['album'], version.get('format', ''), n, len(album.tracks)))
         _refresh_panel()
@@ -471,13 +473,70 @@ def _on_mb_release(album, rest, fetched, document=None, http=None, error=None):
 
 def _use_mb_release(album, node, fitted=True):
     mds = track_metadata(node, fix=partial(_mb_fix, node))
+    if not fitted:
+        # A release whose durations do not fit may be another pressing: show its values, but
+        # never offer its MusicBrainz ids (they would tie the files to the wrong release).
+        for md in mds:
+            for tag in [t for t in md if t.startswith('musicbrainz_')]:
+                del md[tag]
 
     def apply():
         n = attach(album, MUSICBRAINZ, mds)
+        apply_rules(album)
         _status('MusicBrainz: "%s" paired with %d of %d tracks%s'
                 % (node.get('title'), n, len(album.tracks), '' if fitted else ' (no exact pressing fit)'))
         _refresh_panel()
     _when_loaded(album, apply)
+
+
+# -- step 3: New Value from the per-field rule ------------------------------------------------------
+
+# Release-level tags also shown on the album row.
+_ALBUM_TAGS = ('album', 'albumartist', 'date', 'originaldate', 'originalyear', 'label', 'catalognumber',
+               'barcode', 'releasetype', 'releasecountry', 'media', 'genre', 'script')
+
+
+def apply_rules(album):
+    """Set New Value from the per-field rule (rules.py) on every track that has both sources.
+    Never touches a tag the user already picked a source for, nor tags no source has.
+    Records the rule's choice in track.rule_sources[tag] (the user's picks live in value_sources)."""
+    changed = 0
+    album_values = {}
+    for track in album.tracks:
+        sources = getattr(track, 'source_metadata', None) or {}
+        if len(sources) < 2:
+            continue
+        user = dict(getattr(track, 'value_sources', None) or {})
+        for f in track.files:
+            user.update(getattr(f, 'value_sources', None) or {})
+        rule_sources = getattr(track, 'rule_sources', None) or {}
+        tags = {t for md in sources.values() for t in md if not t.startswith('~')}
+        for tag in sorted(tags):
+            if tag in user:
+                continue
+            choice = choose(tag, {name: list(md.getall(tag)) for name, md in sources.items()})
+            if choice is None:
+                continue
+            name, values = choice
+            rule_sources[tag] = name
+            if tag in _ALBUM_TAGS:
+                album_values.setdefault(tag, values)
+            if list(track.metadata.getall(tag)) == values:
+                continue
+            track.metadata[tag] = values
+            track.orig_metadata[tag] = values
+            for f in track.files:
+                f.metadata[tag] = values
+            changed += 1
+        track.rule_sources = rule_sources
+        for f in track.files:
+            f.update()
+        track.update()
+    for tag, values in album_values.items():
+        album.metadata[tag] = values
+    if album_values:
+        album.update(update_tracks=False)
+    return changed
 
 
 def _pick(title, headers, rows, preselect=0):

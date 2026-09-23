@@ -122,3 +122,43 @@ def test_mb_genres_levels():
         {'name': 'speed metal', 'count': 1}, {'name': 'metal', 'count': 1}]
     assert r.mb_genres(node) == ['Black Metal', 'Thrash Metal']       # Abigail's artist genres: top votes only
     assert r.mb_genres({}) == []
+
+
+class TestApplyRules(TestShadowAndAttach):
+    def _album_with_both_sources(self):
+        mb = self.node['media'][0]['tracks']
+        page = {'album_id': '999', 'album': 'The Dark Side of the Moon', 'band_id': '1', 'band': 'Pink Floyd',
+                'type': 'Full-length', 'date': 'March 1st, 1973', 'label': 'Harvest', 'catalog': 'SHVL 804',
+                'format': 'Vinyl', 'cover_url': '',
+                'tracks': [{'disc': 1, 'side': '', 'number': k + 1, 'title': t['title'] + (' (Bonus Track)' if k == 9 else ''),
+                            'length': round(t['length'] / 1000), 'bonus': False, 'song_id': 's%d' % k}
+                           for k, t in enumerate(mb)]}
+        node = r.build_release(page, None)
+        album = self.plugin.MetalArchivesAlbum(node['id'], node, {'album_id': '999', 'band_id': '1', 'cover_url': ''})
+        album.load()
+        self.tagger.albums[album.id] = album
+        mds = self.sc.track_metadata(self.node)
+        for md in mds:
+            md['barcode'] = '5099902894126'
+        self.sc.attach(album, self.sc.MUSICBRAINZ, mds)
+        return album
+
+    def test_rule_fills_new_value_and_records_sources(self):
+        album = self._album_with_both_sources()
+        t = album.tracks[0]
+        self.assertNotIn('barcode', t.metadata)
+        self.plugin.apply_rules(album)
+        self.assertEqual(t.metadata['barcode'], '5099902894126')                  # MB-first tag
+        self.assertEqual(t.metadata['catalognumber'], 'SHVL 804')                 # MA-first tag kept
+        self.assertEqual(t.metadata['date'], '1973-03-01')                        # equal precision: MA (the pressing) wins
+        self.assertTrue(t.metadata['musicbrainz_recordingid'])                    # fitted MB release: ids offered
+        self.assertEqual((t.rule_sources['barcode'], t.rule_sources['catalognumber']), ('MusicBrainz', 'Metal Archives'))
+        self.assertEqual(album.metadata['barcode'], '5099902894126')              # album row too
+
+    def test_rule_never_overrides_a_user_pick(self):
+        album = self._album_with_both_sources()
+        t = album.tracks[0]
+        t.metadata['catalognumber'] = 'MY OWN'
+        t.value_sources = {'catalognumber': 'MusicBrainz'}
+        self.plugin.apply_rules(album)
+        self.assertEqual(t.metadata['catalognumber'], 'MY OWN')
