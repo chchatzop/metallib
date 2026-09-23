@@ -1,0 +1,13 @@
+uuid = "5c6b0a9c-23ef-4a1e-9d1d-7ca8a7d46692"
+name = "MetalLib Quality"
+authors = ["chchatzop"]
+version = "0.1.0"
+description = "Audio quality labels for naming scripts: 16-44, 24-96, V0/V2 from the LAME header, 320K, VBR."
+long_description = """
+Adds `%_quality%` (per file), `%_lame_settings%` and `$album_quality()` (one label for the whole
+album, or `Mixed`). MP3 V tiers come from the preset LAME recorded in its header, never guessed
+from average bitrate.
+"""
+api = ["3.0"]
+license = "GPL-2.0-or-later"
+categories = ["scripting"]
