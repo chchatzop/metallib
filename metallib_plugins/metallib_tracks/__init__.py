@@ -20,6 +20,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+from functools import partial
 import os
 import re
 
@@ -89,12 +90,19 @@ def _track_info(track):
     number = md['tracknumber']
     disc, discs = md['discnumber'], md['totaldiscs']
     label = '%s-%s' % (disc, number.zfill(2)) if disc and discs not in ('', '1') else number
-    return {'title': md['title'], 'length': md.length or 0, 'number': number, 'label': label}
+    return {'title': md['title'], 'length': md.length or 0, 'number': number, 'label': label,
+            'recording_ids': _recording_ids_of_track(track)}
 
 
 def _file_info(file):
     md = file.orig_metadata
-    return {'title': md['title'], 'length': md.length or 0, 'tracknumber': md['tracknumber']}
+    # Recordings the file's AUDIO matched: our fingerprint action, or Picard's own Scan
+    # (match_recordingid). Never the file's musicbrainz_recordingid tag: tags can lie.
+    fp = set(getattr(file, _FP_ATTR, None) or ())
+    if getattr(file, 'match_recordingid', None):
+        fp.add(file.match_recordingid)
+    return {'title': md['title'], 'length': md.length or 0, 'tracknumber': md['tracknumber'],
+            'recording_ids': fp}
 
 
 def resolve(album, files):
@@ -180,6 +188,58 @@ def on_file_added_to_track(api, track, file):
         _set_flag(file, '', '')
 
 
+# -- AcoustID: place unplaced files by their audio fingerprint -----------------------------------
+
+_FP_ATTR = '_metallib_fp_recordings'
+
+
+def _recording_ids_of_track(track):
+    ids = {track.metadata['musicbrainz_recordingid']}
+    mb = (getattr(track, 'source_metadata', None) or {}).get('MusicBrainz')
+    if mb is not None:                              # MA album: ids from the paired MB column
+        ids.add(mb['musicbrainz_recordingid'])
+    return {i for i in ids if i}
+
+
+class PlaceByFingerprint(BaseAction):
+    TITLE = "Place by fingerprint (AcoustID)"
+
+    def callback(self, objs):
+        for album in objs:
+            if not isinstance(album, Album) or not album.loaded:
+                continue
+            files = list(album.unmatched_files.iterfiles())
+            if not files:
+                self.tagger.window.set_statusbar_message('MetalLib: every file of "%s" is already placed',
+                                                         album.metadata['album'])
+                continue
+            if not any(_recording_ids_of_track(t) for t in album.tracks):
+                self.tagger.window.set_statusbar_message(
+                    'MetalLib: "%s" has no MusicBrainz recording ids to compare fingerprints with',
+                    album.metadata['album'])
+                continue
+            pending = set(files)
+            self.tagger.window.set_statusbar_message('MetalLib: fingerprinting %d file(s) of "%s"...',
+                                                     len(files), album.metadata['album'])
+            for f in files:
+                self.tagger._acoustid.analyze(f, partial(_fingerprinted, album, f, pending))
+
+
+def _fingerprinted(album, file, pending, result=None, http=None, error=None):
+    recordings = (result or {}).get('recordings') or []
+    setattr(file, _FP_ATTR, {r.get('id') for r in recordings if r.get('id')})
+    pending.discard(file)
+    if pending or album.id not in _api.tagger.albums:
+        return
+    files = [f for f in album.unmatched_files.iterfiles()]
+    before = len(files)
+    with _api.tagger.window.metadata_box.ignore_updates:
+        resolve(album, files)
+    placed = before - len(list(album.unmatched_files.iterfiles()))
+    _api.tagger.window.set_statusbar_message('MetalLib: fingerprints placed %d of %d file(s) of "%s"',
+                                             placed, before, album.metadata['album'])
+
+
 class PlacementReport(BaseAction):
     TITLE = "Track placement report..."
 
@@ -218,6 +278,7 @@ def enable(api: PluginApi) -> None:
     File._guess_tracknumber_and_title = _guess_title_only
     api.register_file_post_addition_to_track_processor(on_file_added_to_track)
     api.register_album_action(PlacementReport)
+    api.register_album_action(PlaceByFingerprint)
     api.register_script_variable('_placement', documentation='"renumbered", "unplaced" or empty.')
     api.register_script_variable('_placement_reason', documentation='Why a file was flagged.')
 

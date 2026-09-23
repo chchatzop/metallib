@@ -80,6 +80,23 @@ def _decide(f, tracks, similarity, taken=frozenset()):
         d = delta(t)
         return d is not None and d > DUR_BAD_S
 
+    # The audio fingerprint (AcoustID -> MusicBrainz recordings) is the strongest evidence there is:
+    # it is the audio itself, so even a file whose tags were swapped by an earlier bad retag lands
+    # right. It only decides when it points at exactly one track and the length agrees.
+    fp = set(f.get('recording_ids') or ())
+    if fp:
+        hits = [i for i in range(len(tracks)) if fp & set(tracks[i].get('recording_ids') or ())]
+        if len(hits) == 1:
+            i = hits[0]
+            if i in taken:
+                return None, 'fingerprint matches track %s "%s", which already has a file' % (
+                    _label(tracks[i]), tracks[i].get('title'))
+            if dur_bad(tracks[i]):
+                return None, 'fingerprint matches track %s "%s" but the audio is %s vs %s' % (
+                    _label(tracks[i]), tracks[i].get('title'), _fmt_len(flen),
+                    _fmt_len(tracks[i].get('length') or 0))
+            return i, 'fingerprint'
+
     sims = [title_similarity(similarity, f.get('title'), t.get('title')) for t in tracks]
     best = max(sims, default=0.0)
 
@@ -146,8 +163,10 @@ def _decide(f, tracks, similarity, taken=frozenset()):
 def place(files, tracks, similarity):
     """Place files onto tracks, one-to-one.
 
-    files:  [{title, length (ms), tracknumber (the file's own TAG, '' if none)}]
-    tracks: [{title, length (ms), number (track number on its disc), label (e.g. "2-03")}]
+    files:  [{title, length (ms), tracknumber (the file's own TAG, '' if none),
+              recording_ids (MusicBrainz recordings its audio fingerprint matched, optional)}]
+    tracks: [{title, length (ms), number (track number on its disc), label (e.g. "2-03"),
+              recording_ids (the track's MusicBrainz recording ids, optional)}]
     Returns one result per file: {'track': index or None, 'status': OK/RENUMBERED/UNPLACED,
     'reason': str}. Two files claiming the same track are BOTH unplaced -- never pick one.
     """

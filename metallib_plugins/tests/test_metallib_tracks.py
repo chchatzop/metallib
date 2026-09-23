@@ -402,3 +402,63 @@ def test_length_coincidence_with_a_different_title_is_refused():
               {'title': 'Executioner', 'length': s('6:10'), 'number': '2'}]
     res = place(files(('Executed on Site', '3:46', '')), tracks, similarity2)
     assert res[0]['status'] == UNPLACED
+
+
+# --- AcoustID fingerprints ------------------------------------------------------------------------
+
+def _fp(tracks, recs):
+    return [dict(t, recording_ids={r}) for t, r in zip(tracks, recs)]
+
+
+def test_fingerprint_places_untitled_file_duration_could_not():
+    tracks = _fp([{'title': 'Intro', 'length': s('1:30'), 'number': '1'},
+                  {'title': 'Interlude', 'length': s('1:32'), 'number': '2'}], ['rec-1', 'rec-2'])
+    fs = [{'title': '', 'length': s('1:31'), 'tracknumber': '', 'recording_ids': {'rec-2'}}]
+    res = place(fs, tracks, similarity2)
+    assert (res[0]['track'], res[0]['reason']) == (1, 'fingerprint')
+
+
+def test_fingerprint_beats_a_swapped_title_tag():
+    # Old retag bug: this file's TITLE tag says "Abyssos antithesis" but its audio is track 2.
+    tracks = _fp(TRACKS[:2], ['rec-1', 'rec-2'])
+    fs = [{'title': 'Abyssos antithesis', 'length': s('3:24'), 'tracknumber': '1', 'recording_ids': {'rec-2'}}]
+    res = place(fs, tracks, similarity2)
+    assert res[0]['track'] == 1 and res[0]['status'] == RENUMBERED
+
+
+def test_fingerprint_with_contradicting_length_is_refused():
+    tracks = _fp(TRACKS[:1], ['rec-1'])
+    fs = [{'title': '', 'length': s('9:00'), 'tracknumber': '', 'recording_ids': {'rec-1'}}]
+    assert place(fs, tracks, similarity2)[0]['status'] == UNPLACED
+
+
+def test_fingerprint_of_a_taken_track_is_refused():
+    tracks = _fp(TRACKS[:2], ['rec-1', 'rec-2'])
+    fs = [{'title': 'Abyssos antithesis', 'length': s('5:30'), 'tracknumber': ''},
+          {'title': '', 'length': s('5:30'), 'tracknumber': '', 'recording_ids': {'rec-1'}}]
+    res = place(fs, tracks, similarity2)
+    assert [r['status'] for r in res] == [UNPLACED, UNPLACED]      # both claim track 1: nobody gets it
+
+
+def test_unknown_fingerprint_falls_back_to_title_and_duration():
+    tracks = _fp(TRACKS[:2], ['rec-1', 'rec-2'])
+    fs = [{'title': 'Through Eyes of Stone', 'length': s('3:24'), 'tracknumber': '', 'recording_ids': {'other'}}]
+    assert run(fs, tracks) == [(1, OK)]
+
+
+class TestFingerprintInPicard(TestResolveInPicard):
+    def test_resolve_uses_fingerprint_recordings(self):
+        for i, t in enumerate(self.album.tracks):
+            t.metadata['musicbrainz_recordingid'] = 'rec-%d' % i
+        f = self._file('x.flac', '', '0:47')          # untitled, fits 0:47 (track 3) -- but so could others
+        setattr(f, self.plugin._FP_ATTR, {'rec-2'})
+        self.plugin.resolve(self.album, [f])
+        self.assertIs(f.parent_item, self.album.tracks[2])
+
+    def test_mb_column_ids_are_used_for_ma_albums(self):
+        from picard.metadata import Metadata
+        t = self.album.tracks[4]
+        mb = Metadata()
+        mb['musicbrainz_recordingid'] = 'rec-from-mb-column'
+        t.source_metadata = {'MusicBrainz': mb}
+        self.assertEqual(self.plugin._recording_ids_of_track(t), {'rec-from-mb-column'})
