@@ -42,6 +42,7 @@ from .ma_release import (
     build_release,
     fits,
     format_kind,
+    lineup_tags,
     ma_date,
     mb_genres,
     narrow_pressings,
@@ -121,6 +122,7 @@ class MetalArchivesAlbum(Album):
         self._strip_fake_ids(track.metadata)
         track.metadata['~ma_album_id'] = self.ma_info['album_id']
         self._apply_band(track.metadata)
+        _apply_lineup(self.ma_info.get('lineup'), track.metadata)
         # What Metal Archives says, shown as its own column in the tag panel (metadatabox/sources.py).
         ma = Metadata()
         ma.copy(track.metadata)
@@ -278,7 +280,7 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
     if album is None:
         album = MetalArchivesAlbum(aid, node, {
             'album_id': page['album_id'], 'band_id': page['band_id'] or hit['band_id'],
-            'cover_url': page['cover_url'], 'band': band})
+            'cover_url': page['cover_url'], 'band': band, 'lineup': page.get('lineup') or []})
         tagger.albums[aid] = album
         tagger.album_added.emit(album)
     # Files first (they wait in "unmatched" while not loaded), then load: the load's own
@@ -311,8 +313,12 @@ def _on_cover(album, result=None, error=None):
 
 BACKGROUND_PRESSING_FETCHES = 4     # background MA lookups for MB albums fetch fewer pressing pages
 MB_RELEASE_FETCHES = 3              # MB release candidates fetched to find one that fits
-MB_INC = ('aliases', 'artist-credits', 'artists', 'genres', 'isrcs', 'labels', 'media', 'recordings',
-          'release-groups')
+# Everything MusicBrainz has for a release (Picard's own full set incl. relationships), except the
+# user's own tags and ratings. Which relationships become tags still follows Picard's options.
+MB_INC = ('aliases', 'annotation', 'artist-credits', 'artists', 'discids', 'genres', 'isrcs', 'labels',
+          'media', 'recordings', 'release-groups', 'artist-rels', 'recording-rels', 'label-rels',
+          'release-group-level-rels', 'release-rels', 'series-rels', 'url-rels', 'work-rels',
+          'recording-level-rels', 'work-level-rels')
 
 
 def _refresh_panel():
@@ -382,7 +388,7 @@ def _on_background_ma(album, result=None, error=None):
     page, version = result['chosen']['page'], result['chosen']['version']
     node = build_release(page, version, result['result']['original_date'])
     band = dict(result['result'].get('band') or {})
-    mds = track_metadata(node, fix=partial(_ma_fix, page['album_id'], band))
+    mds = track_metadata(node, fix=partial(_ma_fix, page['album_id'], band, page.get('lineup') or []))
 
     def apply():
         n = attach(album, METAL_ARCHIVES, mds)
@@ -392,11 +398,23 @@ def _on_background_ma(album, result=None, error=None):
     _when_loaded(album, apply)
 
 
-def _ma_fix(ma_album_id, band, md):
+def _ma_fix(ma_album_id, band, lineup, md):
     MetalArchivesAlbum._strip_fake_ids(md)
     md['~ma_album_id'] = ma_album_id
     if band.get('genre'):
         md['genre'] = band['genre']
+    _apply_lineup(lineup, md)
+
+
+def _apply_lineup(lineup, md):
+    # Band members / guests / staff from MA's lineup tab as performer:<instrument>, lyricist,
+    # composer, writer, producer, engineer, mixer -- per track, honouring "(tracks 1-8, 10)".
+    try:
+        position = int(md['~absolutetracknumber'] or md['tracknumber'] or 0)
+    except ValueError:
+        position = 0
+    for tag, names in lineup_tags(lineup, position).items():
+        md[tag] = names
 
 
 # -- Metal Archives album: find the same release on MusicBrainz ---------------------------------

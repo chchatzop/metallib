@@ -103,7 +103,8 @@ class TestMetalArchivesAlbumInPicard(PicardTestCase):
         album = self.plugin.MetalArchivesAlbum(node['id'], node, {'album_id': '789680', 'band_id': '5575',
                                                                  'cover_url': '',
                                                                  'band': {'genre': 'Black Metal', 'country': 'Norway',
-                                                                          'country_code': 'NO'}})
+                                                                          'country_code': 'NO'},
+                                                                 'lineup': LINEUP_1349})
         album.load()
         self.assertTrue(album.loaded, album.errors)
         md = album.metadata
@@ -114,6 +115,11 @@ class TestMetalArchivesAlbumInPicard(PicardTestCase):
                          ('Black Metal', 'Norway', 'NO'))
         self.assertEqual({t.metadata['genre'] for t in album.tracks}, {'Black Metal'})
         self.assertEqual({t.metadata['~ma_band_country_code'] for t in album.tracks}, {'NO'})
+        self.assertEqual(album.tracks[0].metadata.getall('performer:vocals'), ['Ravn'])
+        self.assertEqual(album.tracks[0].metadata.getall('lyricist'), ['Destroyer'])
+        self.assertEqual(album.tracks[1].metadata.getall('performer:guest guitar'), ['Someone'])   # track 2 only
+        self.assertNotIn('performer:guest guitar', album.tracks[2].metadata)
+        self.assertEqual(album.tracks[3].source_metadata['Metal Archives'].getall('performer:drums'), ['Frost'])
         src = album.tracks[3].source_metadata['Metal Archives']
         self.assertEqual(src['title'], 'Dødskamp (Norwegian version) (Bonus Track)')
         self.assertEqual(src['catalognumber'], 'SOM 532D')
@@ -156,3 +162,35 @@ def test_same_title_by_two_bands_is_not_auto_picked():
 
 def test_weak_match_is_not_auto_picked():
     assert r.auto_pick(r.rank_hits([_hit('Abigail', 'Intercourse & Lust')], 'Abigail', 'Sweet Baby Metal Slut')) is None
+
+
+LINEUP_1349 = [
+    {'name': 'Frost', 'roles': 'Drums', 'section': 'members'},
+    {'name': 'Seidemann', 'roles': 'Bass, Lyrics (track 9)', 'section': 'members'},
+    {'name': 'Ravn', 'roles': 'Vocals', 'section': 'members'},
+    {'name': 'Archaon', 'roles': 'Guitars, Songwriting, Lyrics (track 9)', 'section': 'members'},
+    {'name': 'Ravn', 'roles': 'Layout', 'section': 'misc'},
+    {'name': 'Jarrett Pritchard', 'roles': 'Engineering', 'section': 'misc'},
+    {'name': 'Destroyer', 'roles': 'Lyrics (tracks 1-8, 10, 11)', 'section': 'misc'},
+    {'name': 'Someone', 'roles': 'Vocals (additional), Guitars (track 2)', 'section': 'guest'},
+]
+
+
+def test_lineup_tags_track_1():
+    assert r.lineup_tags(LINEUP_1349, 1) == {
+        'performer:drums': ['Frost'], 'performer:bass': ['Seidemann'], 'performer:vocals': ['Ravn'],
+        'performer:guitar': ['Archaon'], 'writer': ['Archaon'], 'engineer': ['Jarrett Pritchard'],
+        'lyricist': ['Destroyer'], 'performer:guest additional vocals': ['Someone']}
+
+
+def test_lineup_track_specific_roles():
+    t9 = r.lineup_tags(LINEUP_1349, 9)
+    assert t9['lyricist'] == ['Seidemann', 'Archaon']                 # not Destroyer on track 9
+    t2 = r.lineup_tags(LINEUP_1349, 2)
+    assert t2['performer:guest guitar'] == ['Someone']
+    assert 'performer:guest guitar' not in r.lineup_tags(LINEUP_1349, 3)
+
+
+def test_layout_and_art_are_not_invented_as_tags():
+    tags = r.lineup_tags(LINEUP_1349, 1)
+    assert not any('layout' in t or 'art' in t for t in tags)

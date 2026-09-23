@@ -309,3 +309,73 @@ def mb_genres(release_node, limit=3):
         names = sorted((n for n, c in counts.items() if c >= top / 2), key=lambda n: (-counts[n], n))
         return [n.title() for n in names[:limit]]
     return []
+
+
+# -- lineup -> credit tags ------------------------------------------------------------------------
+
+# MA role -> Picard tag, for roles that are not instruments/vocals. Same names Picard uses for
+# MusicBrainz relationships (mbjson._ARTIST_REL_TYPES), so the two source columns line up.
+_ROLE_TAGS = {'lyrics': 'lyricist', 'music': 'composer', 'songwriting': 'writer', 'producer': 'producer',
+              'production': 'producer', 'co-producer': 'producer', 'engineering': 'engineer',
+              'recording': 'engineer', 'sound engineering': 'engineer', 'mixing': 'mixer'}
+# Staff roles with no standard tag: left out rather than invented.
+_SKIP_ROLES = ('art', 'layout', 'photo', 'design', 'logo', 'mastering', 'management', 'booking',
+               'liner', 'executive', 'a&r', 'coordination', 'translation')
+# Instrument words MA writes in the plural.
+_SINGULAR = {'guitars': 'guitar', 'keyboards': 'keyboard', 'synthesizers': 'synthesizer',
+             'samples': 'samples', 'effects': 'effects', 'drums': 'drums', 'vocals': 'vocals'}
+
+
+def _split_roles(text):
+    """"Guitars, Lyrics (tracks 1-8, 10, 11)" -> ["Guitars", "Lyrics (tracks 1-8, 10, 11)"]."""
+    out, depth, cur = [], 0, ''
+    for ch in text:
+        depth += ch == '('
+        depth -= ch == ')'
+        if ch == ',' and depth == 0:
+            out.append(cur.strip())
+            cur = ''
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+def _track_numbers(qualifier):
+    """"tracks 1-8, 10, 11" -> {1..8, 10, 11}; no numbers -> None (the role applies everywhere)."""
+    nums = set()
+    for m in re.finditer(r'(\d+)\s*(?:-|–|to)\s*(\d+)|(\d+)', qualifier):
+        a, b = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(3))
+        nums.update(range(int(a), int(b) + 1))
+    return nums or None
+
+
+def lineup_tags(lineup, track_position):
+    """Credit tags for the track at absolute position `track_position` (1-based, across discs --
+    MA's "(tracks 1-8, 10)" counts that way): {tag: [names]}."""
+    tags = {}
+    for person in lineup or []:
+        for role in _split_roles(person['roles']):
+            m = re.match(r'^(.*?)\s*\((.*)\)\s*$', role)
+            base, qual = (m.group(1), m.group(2)) if m else (role, '')
+            numbers = _track_numbers(qual) if re.search(r'\btracks?\b|\bon\b', qual, re.I) else None
+            if numbers is not None and track_position not in numbers:
+                continue
+            extra = '' if numbers is not None or not qual else qual.strip().lower()   # "(additional)", "(lead)"
+            key = base.strip().lower()
+            if not key or any(k in key for k in _SKIP_ROLES):
+                continue
+            if key in _ROLE_TAGS:
+                tag = _ROLE_TAGS[key]
+            else:
+                instrument = ' '.join(_SINGULAR.get(w, w) for w in key.split())
+                if extra:
+                    instrument = '%s %s' % (extra, instrument)
+                if person['section'] == 'guest':
+                    instrument = 'guest ' + instrument
+                tag = 'performer:' + instrument
+            names = tags.setdefault(tag, [])
+            if person['name'] not in names:
+                names.append(person['name'])
+    return tags

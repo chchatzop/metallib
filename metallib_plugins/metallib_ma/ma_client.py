@@ -145,7 +145,7 @@ def parse_album_page(page, album_id=''):
         'type': _text(info.get('type', '')), 'date': date, 'year': year.group(0) if year else '',
         'label': _null(_text(info.get('label', ''))), 'catalog': _null(_text(info.get('catalog id', ''))),
         'format': _text(info.get('format', '')), 'tracks': parse_tracklist(page),
-        'cover_url': cover.group(1) if cover else '',
+        'cover_url': cover.group(1) if cover else '', 'lineup': parse_lineup(page),
     }
 
 
@@ -280,3 +280,32 @@ def _default_session():
     s.headers.update({'Accept': 'text/html,application/xhtml+xml,application/json,*/*;q=0.8',
                       'Accept-Language': 'en-US,en;q=0.9', 'Referer': BASE + '/'})
     return s
+
+
+_LINEUP_ROW_RE = re.compile(r'<tr class="(lineupHeaders|lineupRow)"[^>]*>(.*?)</tr>', re.S)
+
+
+def parse_lineup(page):
+    """Album page -> [{'name', 'roles' (raw text), 'section'}] from the "Complete lineup" tab.
+    section: 'members' (Band members), 'guest' (Guest/Session), 'misc' (Miscellaneous staff)."""
+    block = page.split('id="album_all_members_lineup"', 1)
+    if len(block) < 2:
+        return []
+    block = re.split(r'id="album_members_lineup"|id="album_members_misc"|id="album_tabs_reviews"', block[1])[0]
+    out, section = [], 'members'
+    for kind, row in _LINEUP_ROW_RE.findall(block):
+        if kind == 'lineupHeaders':
+            head = _text(row).lower()
+            if 'guest' in head or 'session' in head:
+                section = 'guest'
+            elif 'misc' in head or 'staff' in head:
+                section = 'misc'
+            elif 'member' in head:
+                section = 'members'
+            continue
+        cells = _CELL_RE.findall(row)
+        if len(cells) >= 2:
+            name, roles = _text(cells[0]), _text(cells[1])
+            if name and roles:
+                out.append({'name': name, 'roles': roles, 'section': section})
+    return out
