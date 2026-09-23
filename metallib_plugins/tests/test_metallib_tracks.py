@@ -203,7 +203,8 @@ class TestResolveInPicard(PicardTestCase):
         self.tagger.isrc_submit_manager = MagicMock()
         self.tagger._acoustid = MagicMock()
         self.plugin._api = types.SimpleNamespace(
-            tagger=self.tagger, logger=types.SimpleNamespace(debug=lambda *a, **k: None))
+            tagger=self.tagger, logger=types.SimpleNamespace(
+                debug=lambda *a, **k: None, info=lambda *a, **k: None, exception=self._raise))
         import picard.options  # noqa: F401 -- registers every option with its default
         from picard.config import Option
         self.set_config_values(setting={name: opt.default for (section, name), opt in Option.registry.items()
@@ -215,6 +216,10 @@ class TestResolveInPicard(PicardTestCase):
             t.metadata['tracknumber'] = str(i + 1)
             t.metadata.length = s(length)
             self.album.tracks.append(t)
+
+    @staticmethod
+    def _raise(*a, **k):
+        raise   # re-raise inside the plugin's except block, so tests see real errors
 
     def _file(self, name, title, length, tracknumber=''):
         f = File(name)
@@ -265,3 +270,135 @@ class TestResolveInPicard(PicardTestCase):
         self.assertEqual(g('1-03 Tunnel of Set VIII.flac'), 'Tunnel of Set VIII')
         self.assertEqual(g('Band - Album - 12 - 1000 Years of War.mp3'), '1000 Years of War')
         self.assertEqual(g('Untitled.flac'), 'Untitled')
+
+
+# --- Wrong-release guard -------------------------------------------------------------------------
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'metallib_tracks'))
+from release_check import (  # noqa: E402
+    OK as R_OK,
+    SUSPECT,
+    WRONG,
+    artist_key,
+    check_release,
+    same_artist,
+    track_count_compatible,
+)
+
+
+def test_artist_key_folding():
+    assert artist_key('Motörhead') == artist_key('MOTORHEAD') == 'motorhead'
+    assert artist_key('AC/DC') == artist_key('AC-DC')
+    assert artist_key('The Cure') == 'cure'
+    assert artist_key('Dødheimsgard') == 'dodheimsgard'
+    assert artist_key('Death') != artist_key('Deathspell Omega')
+
+
+def test_same_artist():
+    assert same_artist('Blut aus Nord', 'Blut aus Nord / AEvangelist', similarity2)   # split
+    assert same_artist('Mgła', 'Mgla', similarity2)
+    assert not same_artist('Aghar', 'Mortlach', similarity2)
+    assert not same_artist('Alltid Allena', 'Tapani Rinne', similarity2)
+
+
+def test_track_count():
+    assert track_count_compatible(11, 13)          # bonus-track edition
+    assert not track_count_compatible(4, 12)       # EP vs album
+    assert track_count_compatible(0, 12)           # unknown
+
+
+def test_real_wrong_lookups_from_the_screenshot():
+    # Aghar "Cellar of the Castle" (7 files) -> Mortlach "Relics of the Castle" (9 tracks)
+    v, why = check_release(7, 0, 9, ['Aghar'] * 7, 'Mortlach', similarity2)
+    assert v == WRONG and '0 of 7 files fit' in why and '"Aghar"' in why
+    # Alltid Allena "Grey Metal" (7) -> Tapani Rinne "Grey" (7)
+    assert check_release(7, 0, 7, ['Alltid Allena'] * 7, 'Tapani Rinne', similarity2)[0] == WRONG
+
+
+def test_right_release_under_another_spelling_is_kept():
+    # MusicBrainz credits the band in another script, but the files fit: keep it.
+    assert check_release(8, 8, 8, ['Nargaroth'] * 8, 'Наргарот', similarity2) == (R_OK, '')
+
+
+def test_untitled_files_on_the_right_release_are_not_thrown_out():
+    # Nothing placed (no titles, lengths too close) but artist and count agree: not wrong.
+    assert check_release(6, 0, 6, ['1349'] * 6, '1349', similarity2) == (R_OK, '')
+
+
+def test_wrong_edition_by_track_count():
+    # A 3-track single's files looked up onto the 12-track album of the same band.
+    assert check_release(3, 0, 12, ['Darkthrone'] * 3, 'Darkthrone', similarity2)[0] == WRONG
+
+
+def test_half_fitting_is_suspect():
+    assert check_release(10, 4, 10, ['Aghar'] * 10, 'Mortlach', similarity2)[0] == SUSPECT
+
+
+def test_various_artists_release_skips_the_artist_check():
+    assert check_release(12, 12, 12, ['A', 'B', 'C'] * 4, 'Various Artists', similarity2) == (R_OK, '')
+
+
+class TestWrongReleaseGuardInPicard(TestResolveInPicard):
+    def setUp(self):
+        super().setUp()
+        from unittest.mock import MagicMock, patch
+        from picard.cluster import UnclusteredFiles
+        self.album.metadata['album'] = 'Relics of the Castle'
+        self.album.metadata['albumartist'] = 'Mortlach'
+        self.album.loaded = True
+        self.tagger.albums = {self.album.id: self.album}
+        self.tagger.unclustered_files = UnclusteredFiles()
+        self.tagger.remove_album = MagicMock()
+        self.tagger.cluster = MagicMock()
+        self.tagger.window = MagicMock()
+        patcher = patch.object(self.plugin.QtCore.QTimer, 'singleShot', side_effect=lambda ms, fn: fn())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _aghar(self, name, title, length):
+        f = self._file(name, title, length)
+        f.orig_metadata['artist'] = 'Aghar'
+        return f
+
+    def test_wrong_release_is_taken_apart(self):
+        fs = [self._aghar('k.flac', 'King Winter', '4:54'), self._aghar('c.flac', 'Cellar of the Castle', '4:28')]
+        self.plugin._match_files(self.album, fs)
+        self.tagger.remove_album.assert_called_once_with(self.album)
+        self.tagger.cluster.assert_called_once()
+        for f in fs:
+            self.assertIs(f.parent_item, self.tagger.unclustered_files)
+            self.assertEqual(f.metadata['~placement'], 'unplaced')
+            self.assertIn('wrong release "Relics of the Castle" by Mortlach', f.metadata['~placement_reason'])
+
+    def test_guard_runs_once_not_on_manual_drops(self):
+        self.plugin._match_files(self.album, [self._aghar('k.flac', 'King Winter', '4:54')])
+        self.tagger.remove_album.reset_mock()
+        self.plugin._match_files(self.album, [self._aghar('x.flac', 'Other', '1:00')])
+        self.tagger.remove_album.assert_not_called()
+
+    def test_right_release_is_kept(self):
+        self.album.metadata['albumartist'] = '1349'
+        f = self._file('a.flac', 'Towers upon Towers', '4:50')
+        f.orig_metadata['artist'] = '1349'
+        self.plugin._match_files(self.album, [f])
+        self.tagger.remove_album.assert_not_called()
+        self.assertIs(f.parent_item, self.album.tracks[4])
+
+
+def test_real_title_matching_nothing_is_not_placed_by_duration():
+    # Aghar "King Winter" (4:54) on Mortlach's album must not land on a 4:50 track.
+    res = place(files(('King Winter', '4:54', '')), TRACKS, similarity2)
+    assert res[0]['status'] == UNPLACED
+    assert res[0]['reason'] == 'title "King Winter" matches no track of this release'
+
+
+def test_junk_titles_count_as_no_title():
+    for junk in ('Track 01', 'Untitled', 'Audio Track 3', '05', 'track-7', 'Unknown'):
+        assert run(files((junk, '3:24', ''))) == [(1, OK)], junk
+
+
+def test_length_coincidence_with_a_different_title_is_refused():
+    tracks = [{'title': 'We Are the Only Ones', 'length': s('3:43'), 'number': '1'},
+              {'title': 'Executioner', 'length': s('6:10'), 'number': '2'}]
+    res = place(files(('Executed on Site', '3:46', '')), tracks, similarity2)
+    assert res[0]['status'] == UNPLACED

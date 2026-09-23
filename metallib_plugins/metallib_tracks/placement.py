@@ -22,6 +22,11 @@ DUR_OK_S = 5        # |file - source| within this: durations agree (dupes.js rea
 DUR_BAD_S = 10      # beyond this: durations contradict (dupes.js red / confirm-dialog threshold)
 TITLE_STRONG = 0.8  # title similarity that identifies a track on its own
 TITLE_NEAR = 0.15   # tracks within this of the best title score are "the same by title"
+TITLE_WEAK = 0.5    # a real title scoring below this against every track names none of them
+
+# Titles that carry no information: "", "Track 01", "Untitled", "Audio Track 3", "05".
+_JUNK_TITLE_RE = re.compile(r'^\s*(?:(?:audio\s+)?track|piste|pista|titel|untitled|unknown|'
+                            r'no\s+title|sans\s+titre)?\s*[-#._]?\s*\d*\s*$', re.IGNORECASE)
 
 OK = 'ok'
 RENUMBERED = 'renumbered'
@@ -110,8 +115,14 @@ def _decide(f, tracks, similarity, taken=frozenset()):
         return None, 'title fits tracks %s equally and duration does not decide' % ', '.join(
             _label(tracks[i]) for i in fits)
 
-    # No usable title (missing, "Track 01", or matches nothing): duration alone, and only when it
-    # is unmistakable -- exactly one track within DUR_OK_S and no other within DUR_BAD_S.
+    # A real title that names none of the tracks is evidence the file is not on this release
+    # (King Winter on Mortlach's album): refuse it rather than place it by length.
+    title = _fold(f.get('title'))
+    if title and not _JUNK_TITLE_RE.match(title) and best < TITLE_WEAK:
+        return None, 'title "%s" matches no track of this release' % f.get('title')
+
+    # No usable title (missing or "Track 01"): duration alone, and only when it is unmistakable --
+    # exactly one track within DUR_OK_S and no other within DUR_BAD_S.
     if not flen:
         return None, 'no title match and no duration to go by'
     deltas = [(delta(tracks[i]), i) for i in free if delta(tracks[i]) is not None]
@@ -120,6 +131,11 @@ def _decide(f, tracks, similarity, taken=frozenset()):
     close = [i for d, i in deltas if d <= DUR_OK_S]
     near = [i for d, i in deltas if d <= DUR_BAD_S]
     if len(close) == 1 and len(near) == 1:
+        # A real title must at least roughly agree with the track its length points to; a length
+        # coincidence alone ("Executed on Site" 3:46 vs "We Are the Only Ones" 3:43) is not a match.
+        if title and not _JUNK_TITLE_RE.match(title) and sims[close[0]] < TITLE_WEAK:
+            return None, 'title "%s" does not match track %s "%s" of similar length' % (
+                f.get('title'), _label(tracks[close[0]]), tracks[close[0]].get('title'))
         return close[0], 'duration'
     if not close:
         return None, 'no title match and no track has a similar length (%s)' % _fmt_len(flen)

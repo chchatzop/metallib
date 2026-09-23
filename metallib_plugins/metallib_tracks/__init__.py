@@ -10,6 +10,10 @@
 #   * %_placement%          '' (fine), "renumbered" or "unplaced" -- use it in a custom column
 #     %_placement_reason%   why, in words
 #   * Right-click an album -> "Track placement report..." lists every flagged file.
+#   * Wrong-release guard: when a looked-up album finishes loading and under a third of its files
+#     fit its tracklist while the artist or track count contradicts it, the files go back to
+#     clustering and the album is dropped (flag "unplaced", reason "wrong release ..."). Under
+#     half fitting -> the album row is flagged "suspect release" instead.
 #
 # Picard 3.0 has no plugin hook for the file->track assignment, so this wraps
 # Album.match_files and File._guess_tracknumber_and_title; disable() restores both.
@@ -19,7 +23,10 @@
 import os
 import re
 
-from PyQt6 import QtWidgets
+from PyQt6 import (
+    QtCore,
+    QtWidgets,
+)
 
 from picard.plugin3.api import (
     Album,
@@ -33,6 +40,11 @@ from .placement import (
     RENUMBERED,
     UNPLACED,
     place,
+)
+from .release_check import (
+    SUSPECT,
+    WRONG,
+    check_release,
 )
 
 
@@ -121,6 +133,45 @@ def _match_files(self, files):
         return _originals['match_files'](self, files)
     with self.tagger.window.metadata_box.ignore_updates:
         resolve(self, files)
+    # The first match after the album finished loading is the lookup's; judge the release once.
+    # Later calls (files dragged onto the album by hand) are the user's decision.
+    if not getattr(self, '_metallib_checked', False):
+        self._metallib_checked = True
+        try:
+            check_album(self)
+        except Exception:
+            _api.logger.exception("wrong-release check failed for %r", self)    # never break loading
+
+
+def check_album(album):
+    """Wrong-release guard: see release_check.check_release."""
+    files = [f for f in album.iterfiles() if f.state != File.State.REMOVED]
+    placed = [f for t in album.tracks for f in t.files]
+    artists = [f.orig_metadata['albumartist'] or f.orig_metadata['artist'] for f in files]
+    verdict, reason = check_release(len(files), len(placed), len(album.tracks), artists,
+                                    album.metadata['albumartist'], similarity2)
+    label = '"%s" by %s' % (album.metadata['album'], album.metadata['albumartist'])
+    if verdict == WRONG:
+        _api.logger.info("wrong release %s: %s", label, reason)
+        # Not from inside the album's own load: let it finish, then take it apart.
+        QtCore.QTimer.singleShot(0, lambda: _send_back(album, files, 'wrong release %s: %s' % (label, reason)))
+    elif verdict == SUSPECT:
+        album.metadata['~placement'] = 'suspect release'
+        album.metadata['~placement_reason'] = reason
+        album.update(update_tracks=False)
+
+
+def _send_back(album, files, reason):
+    tagger = album.tagger
+    if album.id not in tagger.albums:
+        return                                  # removed by the user meanwhile
+    files = [f for f in files if f.state != File.State.REMOVED]
+    for f in files:
+        f.move(tagger.unclustered_files)
+        _set_flag(f, UNPLACED, reason)
+    tagger.remove_album(album)
+    tagger.cluster(files)
+    tagger.window.set_statusbar_message("MetalLib: %s -- files sent back to clustering", reason)
 
 
 def on_file_added_to_track(api, track, file):
@@ -144,6 +195,9 @@ class PlacementReport(BaseAction):
                     lines.append("&nbsp;&nbsp;<b>%s</b> %s — %s" % (
                         status, _html(os.path.basename(f.filename)), _html(reason)))
             head = "<b>%s</b>" % _html(album.metadata['album'])
+            if album.metadata['~placement']:
+                head += " — <b>%s</b>: %s" % (_html(album.metadata['~placement']),
+                                              _html(album.metadata['~placement_reason']))
             parts.append(head + ("<br>" + "<br>".join(lines) if lines else ": every file placed by title + duration"))
         QtWidgets.QMessageBox.information(
             self.tagger.window, "Track placement", "<br><br>".join(parts) or "Select an album.")
