@@ -217,7 +217,7 @@ class TagDiff:
     REMOVED_VALUE = 'removed'
 
     __slots__ = ('tag_names', 'new', 'old', 'status', 'objects', 'tag_ne_handlers', 'removed_tags', 'diff_html',
-                 'sources')
+                 'sources', 'extra_tags')
 
     def __init__(self, max_length_diff=2):
         """
@@ -235,6 +235,7 @@ class TagDiff:
         self.removed_tags = set()
         self.diff_html = {}
         self.sources = {}  # MetalLib: {source name: {tag: values}}, see metadatabox/sources.py
+        self.extra_tags = set()  # MetalLib: rows shown even when neither old nor new has the tag
         self.tag_ne_handlers = defaultdict(lambda: lambda old, new: old != new)
         # handling the special case of '~length'
         max_length_delta_ms = max_length_diff * 1000
@@ -340,7 +341,7 @@ class TagDiff:
             changes_first (bool): Whether to display changed tags first.
             top_tags (set): Set of tags to always be displayed at the top.
         """
-        all_tags = set(list(self.old) + list(self.new) + list(self.removed_tags))
+        all_tags = set(list(self.old) + list(self.new) + list(self.removed_tags)) | self.extra_tags
         common_tags = [tag for tag in top_tags if tag in all_tags] if top_tags else []
         tag_names = common_tags + sorted(all_tags.difference(common_tags), key=lambda x: display_tag_name(x).lower())
 

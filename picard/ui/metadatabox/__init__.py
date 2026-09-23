@@ -1030,6 +1030,9 @@ class MetadataBox(QtWidgets.QTableWidget):
         self._add_files_to_tag_diff(files, tag_diff, config, top_tags)
         self._add_tracks_to_tag_diff(tracks, tag_diff, config)
 
+        # MetalLib: keep a row for every tag a source knows, so a value deleted from New Value can be
+        # taken back from the MusicBrainz / Metal Archives column.
+        tag_diff.extra_tags = metallib_sources.source_tag_names(metallib_sources.source_objects(files, tracks))
         tag_diff.update_tag_names(config.persist['show_changes_first'], top_tags)
         self._compute_diff_html(tag_diff, diff_colors)
         tag_diff.sources = metallib_sources.collect(metallib_sources.source_objects(files, tracks), tag_diff.tag_names)

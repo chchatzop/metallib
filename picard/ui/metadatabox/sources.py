@@ -48,6 +48,17 @@ def source_objects(files, tracks):
     return list(files) + [t for t in tracks if not t.num_linked_files]
 
 
+def source_tag_names(objects):
+    """Tags some source has a value for, which every selected file can store (hidden ~tags
+    excluded). These rows stay visible even after the user deletes the tag from New Value."""
+    tags = set()
+    for obj in objects:
+        for md in object_sources(obj).values():
+            tags.update(t for t in md if not t.startswith('~'))
+    files = [o for o in objects if isinstance(o, File)]
+    return {t for t in tags if all(f.supports_tag(t) for f in files)}
+
+
 def collect(objects, tag_names):
     """-> {source name: {tag: list of values | DIFFERENT}} for the given rows.
 

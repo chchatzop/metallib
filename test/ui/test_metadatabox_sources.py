@@ -146,3 +146,44 @@ class TestSourceColumns(PicardTestCase):
         box._set_source_columns(['MusicBrainz'])
         box._fill_source_cells(0, 'title', box.get_item, False)
         self.assertEqual(box.item(0, 3).text(), '(different values)')
+
+
+class TestSourceRowsStay(PicardTestCase):
+    """A tag a source knows keeps its row after the user deletes it, so it can be taken back."""
+
+    def setUp(self):
+        super().setUp()
+        self.patch_tagger_instance('picard.item')
+
+    def test_source_tag_names(self):
+        track = Track('t1', Album('a'))
+        track.source_metadata = {'Metal Archives': md(catalognumber='MIM7324-2CD', **{'~ma_album_id': '1'}),
+                                 'MusicBrainz': md(barcode='123')}
+        self.assertEqual(sources.source_tag_names([track]), {'catalognumber', 'barcode'})
+
+    def test_deleted_added_tag_still_has_a_row(self):
+        tag_diff = TagDiff()
+        tag_diff.add('title', old=['x'], new=['x'])
+        # catalognumber was only added by the lookup and then deleted: neither old nor new has it.
+        tag_diff.extra_tags = {'catalognumber'}
+        tag_diff.update_tag_names()
+        self.assertIn('catalognumber', tag_diff.tag_names)
+
+    def test_without_sources_nothing_extra(self):
+        tag_diff = TagDiff()
+        tag_diff.add('title', old=['x'], new=['x'])
+        tag_diff.update_tag_names()
+        self.assertEqual(tag_diff.tag_names, ['title'])
+
+    def test_taking_a_deleted_value_back(self):
+        track = Track('t1', Album('a'))
+        track.source_metadata = {'Metal Archives': md(catalognumber='MIM7324-2CD')}
+        f = File('f.flac')
+        track.files.append(f)
+        f.parent_item = track
+        f.metadata['catalognumber'] = 'MIM7324-2CD'
+        del f.metadata['catalognumber']                       # the user pressed Delete
+        self.assertNotIn('catalognumber', f.metadata)
+        sources.use_source_value([f], 'Metal Archives', 'catalognumber', apply_tag_values)
+        self.assertEqual(f.metadata['catalognumber'], 'MIM7324-2CD')
+        self.assertNotIn('catalognumber', f.metadata.deleted_tags)
