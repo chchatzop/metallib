@@ -1,0 +1,14 @@
+uuid = "673eebd1-cda9-4437-817c-a0cd555aeadf"
+name = "MetalLib Tracks"
+authors = ["chchatzop"]
+version = "0.1.0"
+description = "Place files on album tracks by title + duration, never by filename; flag anything undecidable."
+long_description = """
+Replaces the automatic file-to-track matching of a loaded album: every file is placed by title +
+duration, one file per track. Undecidable files stay unmatched and are flagged (`%_placement%`);
+a confident match that disagrees with the file's track-number tag is placed and flagged
+"renumbered". Track numbers are no longer guessed from filenames.
+"""
+api = ["3.0"]
+license = "GPL-2.0-or-later"
+categories = ["metadata"]
