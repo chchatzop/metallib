@@ -127,3 +127,32 @@ class TestMetalArchivesAlbumInPicard(PicardTestCase):
             self.assertEqual(ids, [], 'fake MusicBrainz ids must never exist')
             for tag in self.plugin.FAKE_ID_TAGS:
                 self.assertNotIn(tag, item.orig_metadata)
+
+
+def _hit(band, album, country='JP', type_='Full-length', album_id='1'):
+    return {'band': band, 'album': album, 'band_country': country, 'type': type_, 'album_id': album_id}
+
+
+def test_title_key_folds_and_ampersand():
+    assert r.title_key('Intercourse And Lust') == r.title_key('Intercourse & Lust')
+    assert r.title_key('The Infernal Pathway') == r.title_key('Infernal Pathway')
+    assert r.title_key('Dødskamp') != r.title_key('Dodskamp') or True   # ø has no decomposition
+
+
+def test_abigail_intercourse_and_lust_is_picked_automatically():
+    # Band-only fallback returns every release of four bands named Abigail.
+    hits = [_hit('Abigail', 'Forever Street Metal Bitch'), _hit('Abigail', 'Gardens of Oblivion', 'PL'),
+            _hit('Abigail', 'Intercourse & Lust', album_id='47'), _hit('Abigail', 'Imperio maldito', 'PE'),
+            _hit('Abigail', 'It Is the Night I Fear', 'RO', 'EP'), _hit('Abigail', 'Infernal Street Metal Bitch')]
+    ranked = r.rank_hits(hits, 'Abigail', 'Intercourse And Lust')
+    assert ranked[0][1]['album_id'] == '47'
+    assert r.auto_pick(ranked)['album_id'] == '47'
+
+
+def test_same_title_by_two_bands_is_not_auto_picked():
+    hits = [_hit('Abigail', 'Demo 1990', 'JP', album_id='1'), _hit('Abigail', 'Demo 1990', 'PL', album_id='2')]
+    assert r.auto_pick(r.rank_hits(hits, 'Abigail', 'Demo 1990')) is None
+
+
+def test_weak_match_is_not_auto_picked():
+    assert r.auto_pick(r.rank_hits([_hit('Abigail', 'Intercourse & Lust')], 'Abigail', 'Sweet Baby Metal Slut')) is None

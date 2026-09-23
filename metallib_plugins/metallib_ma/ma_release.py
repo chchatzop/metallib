@@ -186,3 +186,50 @@ def build_release(album, pressing, original_date=''):
     if label or catalog:
         node['label-info'] = [{'label': {'name': label or ''}, 'catalog-number': catalog or ''}]
     return node
+
+
+# -- choosing the album among search hits --------------------------------------------------------
+
+def title_key(title):
+    """Fold spelling variants of one title together: case, accents, "&"/"and"/"+", punctuation,
+    a leading "The". "Intercourse And Lust" == "Intercourse & Lust"."""
+    s = unicodedata.normalize('NFKD', title or '').lower()
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r'\s*[&+]\s*', ' and ', s)
+    s = re.sub(r'[^a-z0-9]+', ' ', s).strip()
+    return re.sub(r'^the ', '', s)
+
+
+def title_score(a, b):
+    import difflib
+    ka, kb = title_key(a), title_key(b)
+    if not ka or not kb:
+        return 0.0
+    if ka == kb:
+        return 1.0
+    return difflib.SequenceMatcher(None, ka, kb).ratio()
+
+
+def rank_hits(hits, band, album):
+    """Search hits best first: (score, hit). Score = album title similarity, plus a small bonus
+    when the band name matches too (several bands share a name, e.g. four "Abigail"s)."""
+    scored = []
+    for h in hits:
+        score = title_score(h.get('album'), album)
+        if title_key(h.get('band')) == title_key(band):
+            score += 0.05
+        scored.append((score, h))
+    scored.sort(key=lambda sh: -sh[0])
+    return scored
+
+
+def auto_pick(ranked):
+    """The hit to take without asking, or None: the best must be an (almost) exact title match and
+    clearly ahead of the next one -- two bands with the same album title still get asked."""
+    if not ranked:
+        return None
+    best = ranked[0][0]
+    runner_up = ranked[1][0] if len(ranked) > 1 else 0.0
+    if best >= 0.95 and runner_up < best - 0.1:
+        return ranked[0][1]
+    return None

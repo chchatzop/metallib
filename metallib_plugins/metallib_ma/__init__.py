@@ -16,6 +16,7 @@
 
 from functools import partial
 import os
+import re
 
 from PyQt6 import QtWidgets
 
@@ -37,10 +38,12 @@ from .ma_client import (
 )
 from .ma_release import (
     album_id_for,
+    auto_pick,
     build_release,
     fits,
     ma_date,
     narrow_pressings,
+    rank_hits,
 )
 
 
@@ -146,8 +149,10 @@ class MetalArchivesAlbum(Album):
 
 def _search(band, album):
     hits = client().search_albums(band, album)
+    if not hits and album and re.search(r'\band\b', album, re.I):
+        hits = client().search_albums(band, re.sub(r'\band\b', '&', album, flags=re.I))   # "And" vs "&"
     if not hits and album:
-        hits = client().search_albums(band, '')         # album title spelled differently on MA
+        hits = client().search_albums(band, '')         # title spelled differently on MA: all of the band
     return hits
 
 
@@ -215,17 +220,16 @@ def _on_search(cluster, local, result=None, error=None):
     if not result:
         _status('nothing found on Metal Archives for "%s" by %s' % (local['album'], local['band']))
         return
-    exact = [h for h in result if h['album'].lower() == local['album'].lower()
-             and h['band'].lower() == local['band'].lower()]
-    pool = exact or result
-    if len(pool) == 1:
-        hit = pool[0]
-    else:
-        rows = [(h['band'], h['band_country'], h['album'], h['type']) for h in pool]
-        i = _pick('Which Metal Archives album?', ('Band', 'Country', 'Album', 'Type'), rows)
+    ranked = rank_hits(result, local['band'], local['album'])
+    hit = auto_pick(ranked)
+    if hit is None:
+        # Best matches first, the best one preselected.
+        rows = [(h['band'], h['band_country'], h['album'], h['type'], '%d%%' % min(100, round(score * 100)))
+                for score, h in ranked]
+        i = _pick('Which Metal Archives album?', ('Band', 'Country', 'Album', 'Type', 'Title match'), rows)
         if i is None:
             return
-        hit = pool[i]
+        hit = ranked[i][1]
     _status('loading "%s" and its pressings from Metal Archives...' % hit['album'])
     thread.run_task(partial(_resolve, hit, local), partial(_on_resolved, cluster, local, hit))
 
