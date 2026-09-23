@@ -1,0 +1,96 @@
+# -*- coding: utf-8 -*-
+#
+# Picard, the next-generation MusicBrainz tagger
+#
+# Copyright (C) 2026 MetalLib contributors
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+"""Per-source tag values shown as extra columns of the metadata box (MetalLib).
+
+Any File or Track may carry ``source_metadata``: an ordered dict mapping a source name
+(e.g. "MusicBrainz", "Metal Archives") to a Metadata object with what that source says.
+A file without its own falls back to its track's. Plugins fill it; the metadata box shows one
+read-only column per source and lets the user copy a source's value into New Value. Which
+source a value was taken from is remembered in ``value_sources`` (tag -> source name).
+"""
+
+from picard.file import File
+from picard.track import Track
+
+
+DIFFERENT = object()        # the selected objects disagree for this source/tag
+
+
+def object_sources(obj):
+    """The source_metadata dict that applies to obj ({} if none)."""
+    sources = getattr(obj, 'source_metadata', None)
+    if not sources and isinstance(obj, File) and isinstance(obj.parent_item, Track):
+        sources = getattr(obj.parent_item, 'source_metadata', None)
+    return sources or {}
+
+
+def source_objects(files, tracks):
+    """The objects whose source values are shown: files, plus tracks without linked files
+    (the same objects the metadata box compares)."""
+    return list(files) + [t for t in tracks if not t.num_linked_files]
+
+
+def collect(objects, tag_names):
+    """-> {source name: {tag: list of values | DIFFERENT}} for the given rows.
+
+    A source appears when at least one object has it. Values are per tag across all objects:
+    identical everywhere -> that list; otherwise DIFFERENT. An object lacking the source or the
+    tag counts as an empty value.
+    """
+    names = []
+    for obj in objects:
+        for name in object_sources(obj):
+            if name not in names:
+                names.append(name)
+    result = {}
+    for name in names:
+        per_tag = {}
+        for tag in tag_names:
+            seen = None
+            for obj in objects:
+                md = object_sources(obj).get(name)
+                values = list(md.getall(tag)) if md is not None and tag in md else []
+                if seen is None:
+                    seen = values
+                elif values != seen:
+                    seen = DIFFERENT
+                    break
+            per_tag[tag] = seen if seen is not None else []
+        result[name] = per_tag
+    return result
+
+
+def use_source_value(objects, source, tag, apply_tag_values):
+    """Copy each object's own value from `source` for `tag` into its metadata (New Value).
+    Returns the objects that changed. Objects without that source/tag are left alone."""
+    changed = []
+    for obj in objects:
+        if not isinstance(obj, (File, Track)):
+            continue
+        md = object_sources(obj).get(source)
+        if md is None or tag not in md:
+            continue
+        changed.extend(apply_tag_values([obj], tag, list(md.getall(tag))))
+        record = getattr(obj, 'value_sources', None)
+        if record is None:
+            record = obj.value_sources = {}
+        record[tag] = source
+    return changed

@@ -83,6 +83,7 @@ from .tagdiff import (
 
 from picard.ui.colors import interface_colors
 from picard.ui.metadatabox.difftextdocument import create_diff_document
+from picard.ui.metadatabox import sources as metallib_sources
 from picard.ui.metadatabox.mimedatahelper import MimeDataHelper
 from picard.ui.metadatabox.tagdiffhtml import (
     compute_diff,
@@ -322,6 +323,8 @@ class MetadataBox(QtWidgets.QTableWidget):
         self.setAccessibleDescription(_("Displays original and new tags for the selected files"))
         self.setColumnCount(3)
         self.setHorizontalHeaderLabels((_("Tag"), _("Original Value"), _("New Value")))
+        self._source_names = []     # MetalLib: extra read-only columns, one per metadata source
+        self.cellDoubleClicked.connect(self._source_cell_double_clicked)
         self.horizontalHeader().setStretchLastSection(True)
         self.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.horizontalHeader().setSectionsClickable(False)
@@ -782,6 +785,8 @@ class MetadataBox(QtWidgets.QTableWidget):
                 self._add_tag_modification_actions(menu, removals, useorigs, mergeorigs)
                 # Add copy/paste actions
                 self._add_copy_paste_actions(menu)
+            # MetalLib: "Use <source> value" on a source column cell
+            self._add_source_action(menu, tags)
             # Add plugin metadata tag actions
             self._add_plugin_metadata_tag_actions(menu, tags)
             # Add separator and "Add New Tag" if relevant
@@ -793,6 +798,62 @@ class MetadataBox(QtWidgets.QTableWidget):
         menu.addAction(self.changes_first_action)
         menu.exec(context_menu_global_pos(self, event))
         event.accept()
+
+    # -- MetalLib: per-source columns (see sources.py) ----------------------------------------
+
+    def _set_source_columns(self, names):
+        if names == self._source_names:
+            return
+        self._source_names = names
+        self.setColumnCount(3 + len(names))
+        self.setHorizontalHeaderLabels([_("Tag"), _("Original Value"), _("New Value")] + names)
+
+    def _source_of_column(self, column):
+        index = column - (self.COLUMN_NEW + 1)
+        return self._source_names[index] if 0 <= index < len(self._source_names) else None
+
+    def _fill_source_cells(self, row, tag, get_table_item, is_readonly):
+        changed = QtGui.QBrush(interface_colors.get_qcolor('tagstatus_changed'))
+        normal = self.palette().color(QtGui.QPalette.ColorRole.Text)
+        new = self.tag_diff.new
+        new_values = None if new.status(tag).is_grouped else [v for v in new[tag] if v]
+        for i, name in enumerate(self._source_names):
+            item = get_table_item(row, self.COLUMN_NEW + 1 + i)
+            item.setData(DIFF_HTML_ROLE, None)
+            values = self.tag_diff.sources[name].get(tag, [])
+            if values is metallib_sources.DIFFERENT:
+                item.setText(_("(different values)"))
+                item.setForeground(self.palette().color(QtGui.QPalette.ColorRole.PlaceholderText))
+                continue
+            text = MULTI_VALUED_JOINER.join(values)
+            item.setText(text)
+            # Highlight where this source disagrees with what will be saved.
+            differs = bool(text) and new_values is not None and values != new_values and not is_readonly
+            item.setForeground(changed if differs else normal)
+            item.setToolTip(_("%s says: %s") % (name, text) if text else '')
+
+    def _add_source_action(self, menu, tags):
+        item = self.currentItem()
+        source = self._source_of_column(item.column()) if item else None
+        if not source or len(tags) != 1 or not self._tag_is_editable(tags[0]):
+            return
+        action = QtGui.QAction(_("Use %s value") % source, self)
+        action.triggered.connect(partial(self._use_source_value, source, tags[0]))
+        menu.addAction(action)
+        menu.addSeparator()
+
+    def _source_cell_double_clicked(self, row, column):
+        source = self._source_of_column(column)
+        if source and self.tag_diff is not None and row < len(self.tag_diff.tag_names):
+            tag = self.tag_diff.tag_names[row]
+            if self._tag_is_editable(tag):
+                self._use_source_value(source, tag)
+
+    def _use_source_value(self, source, tag):
+        with self.tagger.window.ignore_selection_changes:
+            changed = metallib_sources.use_source_value(self.objects, source, tag, apply_tag_values)
+        self._update_objects(changed)
+        self.tagger.window.update_selection(new_selection=False, drop_album_caches=True)
 
     def _add_lookup_action(self, menu, tag, column, single_tag, item):
         """Add a 'Lookup in Browser' action if the tag supports it and context allows."""
@@ -971,6 +1032,7 @@ class MetadataBox(QtWidgets.QTableWidget):
 
         tag_diff.update_tag_names(config.persist['show_changes_first'], top_tags)
         self._compute_diff_html(tag_diff, diff_colors)
+        tag_diff.sources = metallib_sources.collect(metallib_sources.source_objects(files, tracks), tag_diff.tag_names)
         return tag_diff
 
     def _add_files_to_tag_diff(self, files, tag_diff, config, top_tags):
@@ -1095,9 +1157,11 @@ class MetadataBox(QtWidgets.QTableWidget):
 
         if self.tag_diff is None:
             self.setRowCount(0)
+            self._set_source_columns([])
             return
 
         self.setRowCount(len(self.tag_diff.tag_names))
+        self._set_source_columns(list(getattr(self.tag_diff, 'sources', {})))
 
         readonly_item_flags = QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled
         editable_item_flags = readonly_item_flags | QtCore.Qt.ItemFlag.ItemIsEditable
@@ -1165,6 +1229,8 @@ class MetadataBox(QtWidgets.QTableWidget):
                 tag_item.setBackground(bg)
                 orig_item.setBackground(bg)
                 new_item.setBackground(bg)
+
+            self._fill_source_cells(row, tag, get_table_item, is_readonly)
 
             # Adjust row height to content size
             self.setRowHeight(row, self.sizeHintForRow(row))
