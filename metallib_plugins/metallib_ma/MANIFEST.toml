@@ -1,0 +1,15 @@
+uuid = "775ac73f-00dc-408c-8648-e261b17352c3"
+name = "MetalLib Metal Archives"
+authors = ["chchatzop"]
+version = "0.1.0"
+description = "Load a cluster as a Metal Archives album: tracklist per disc, lengths, pressing, label, catalog, cover."
+long_description = """
+Right-click a cluster -> **Load from Metal Archives**. Searches Metal Archives by band + album, picks
+the pressing (catalog number in the folder name, else same media, else all; automatic when exactly one
+fits the files' track count and durations, otherwise you choose) and builds an album from that
+pressing's own tracklist. Polite: one request at a time, 1-1.5 s apart, every page cached.
+Needs the `curl_cffi` Python package (Metal Archives blocks plain HTTP clients).
+"""
+api = ["3.0"]
+license = "GPL-2.0-or-later"
+categories = ["metadata", "coverart"]
