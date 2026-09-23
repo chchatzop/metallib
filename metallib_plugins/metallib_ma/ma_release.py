@@ -36,11 +36,12 @@ DIGITAL, CD, VINYL, TAPE = 'Digital', 'CD', 'Vinyl', 'Cassette'
 def format_kind(ma_format):
     """MA's format text ("2 12\" vinyls (45 RPM)", "Digital", "CD", "Cassette") -> media kind."""
     f = (ma_format or '').lower()
-    if 'digital' in f:
+    # Discogs calls digital releases "File" ("File, FLAC, Album"); vinyl "2xLP", tape "Cass".
+    if 'digital' in f or re.search(r'\bfile\b', f):
         return DIGITAL
-    if 'vinyl' in f or re.search(r'\b(7|10|12)"', f) or re.search(r'\blp\b', f):
+    if 'vinyl' in f or re.search(r'\b(7|10|12)"', f) or re.search(r'\b(?:\d+x)?lp\b', f):
         return VINYL
-    if 'cassette' in f or 'tape' in f:
+    if 'cassette' in f or 'tape' in f or re.search(r'\b(?:\d+x)?cass\b', f):
         return TAPE
     if 'cd' in f or 'sacd' in f:
         return CD
@@ -190,14 +191,29 @@ def build_release(album, pressing, original_date=''):
 
 # -- choosing the album among search hits --------------------------------------------------------
 
+_DOTTED_RE = re.compile(r'(?<![A-Za-z0-9])((?:[A-Za-z0-9]\.){2,}[A-Za-z0-9]?)\.?(?![A-Za-z0-9])')
+
+
 def title_key(title):
     """Fold spelling variants of one title together: case, accents, "&"/"and"/"+", punctuation,
-    a leading "The". "Intercourse And Lust" == "Intercourse & Lust"."""
-    s = unicodedata.normalize('NFKD', title or '').lower()
+    a leading "The", dotted acronyms ("N.Y.C. 93" == "NYC 93").
+    "Intercourse And Lust" == "Intercourse & Lust"."""
+    s = _DOTTED_RE.sub(lambda m: m.group(1).replace('.', ''), title or '')
+    s = unicodedata.normalize('NFKD', s).lower()
     s = ''.join(c for c in s if not unicodedata.combining(c))
     s = re.sub(r'\s*[&+]\s*', ' and ', s)
     s = re.sub(r'[^a-z0-9]+', ' ', s).strip()
     return re.sub(r'^the ', '', s)
+
+
+def _initialism(short, long):
+    """'T.O.M.B.' / 'TOMB' abbreviates 'Target on My Back' (one letter per word)."""
+    s = (short or '').strip()
+    if not re.fullmatch(r'(?:[A-Za-z0-9]\.){2,}[A-Za-z0-9]?\.?|[A-Z0-9]{3,8}', s):
+        return False
+    acro = re.sub(r'[^A-Za-z0-9]', '', s).lower()
+    words = re.findall(r'[A-Za-z0-9]+', long or '')
+    return len(acro) >= 3 and len(words) == len(acro) and ''.join(w[0] for w in words).lower() == acro
 
 
 def title_score(a, b):
@@ -205,7 +221,7 @@ def title_score(a, b):
     ka, kb = title_key(a), title_key(b)
     if not ka or not kb:
         return 0.0
-    if ka == kb:
+    if ka == kb or _initialism(a, b) or _initialism(b, a):
         return 1.0
     return difflib.SequenceMatcher(None, ka, kb).ratio()
 

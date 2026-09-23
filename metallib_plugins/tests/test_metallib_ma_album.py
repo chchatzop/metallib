@@ -203,3 +203,19 @@ def test_lineup_skips_credits_that_are_not_performances():
     tags = r.lineup_tags(lineup, 1)
     assert tags == {'performer:drums': ['Charlie Benante'], 'performer:percussion': ['Charlie Benante'],
                     'producer': ['Jay Ruston'], 'mixer': ['Jay Ruston']}
+
+
+def test_discogs_format_names():
+    assert r.format_kind('File, FLAC, Album') == r.DIGITAL
+    assert r.format_kind('File, MP3, Album, 320 kbps') == r.DIGITAL
+    assert r.format_kind('2xLP, Album, Gatefold') == r.VINYL
+    assert r.format_kind('Cass, Album') == r.TAPE
+    assert r.format_kind('CD, Album') == r.CD
+
+
+def test_pairing_understands_acronyms():
+    targets = [{'title': 'Target on My Back', 'length': 271000, 'disc': '1', 'number': '9'},
+               {'title': 'NYC 93', 'length': 289000, 'disc': '1', 'number': '7'}]
+    sources = [{'title': 'N.Y.C. 93', 'length': 289000, 'disc': '1', 'number': '3'},
+               {'title': 'T.O.M.B.', 'length': 271000, 'disc': '2', 'number': '4'}]    # a vinyl's positions
+    assert r.pair_tracks(targets, sources) == {0: 1, 1: 0}

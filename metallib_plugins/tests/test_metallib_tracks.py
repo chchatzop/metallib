@@ -524,3 +524,11 @@ def test_two_leftovers_two_free_tracks_by_unique_length():
               {'title': 'C', 'length': s('5:00'), 'number': '3'}, {'title': 'D', 'length': s('6:00'), 'number': '4'}]
     res = place(files(('A', '3:00', ''), ('B', '4:00', ''), ('x', '6:01', ''), ('y', '5:02', '')), tracks, similarity2)
     assert [(r['track'], r['status']) for r in res[2:]] == [(3, ASSUMED), (2, ASSUMED)]
+
+
+def test_dotted_acronyms_are_the_same_title():
+    # Anthrax: the file says "NYC 93", MusicBrainz "N.Y.C. 93" -- a title match, not an "assumed" one.
+    tracks = [{'title': 'N.Y.C. 93', 'length': s('4:49'), 'number': '7'},
+              {'title': 'Everybody\u2019s Got a Plan', 'length': s('4:37'), 'number': '4'}]
+    res = place(files(('NYC 93', '4:49', '7')), tracks, similarity2)
+    assert (res[0]['track'], res[0]['status'], res[0]['reason']) == (0, OK, 'title+duration')

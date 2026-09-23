@@ -36,8 +36,16 @@ ASSUMED = 'assumed'     # the only free track left with a matching length: place
 _BRACKETS_RE = re.compile(r'\s*[\(\[][^\)\]]*[\)\]]')
 
 
+_DOTTED_RE = re.compile(r'(?<![A-Za-z0-9])((?:[A-Za-z0-9]\.){2,}[A-Za-z0-9]?)\.?(?![A-Za-z0-9])')
+
+
+def undot(title):
+    """Dotted acronyms as plain words: "N.Y.C. 93" -> "NYC 93", "T.O.M.B" -> "TOMB"."""
+    return _DOTTED_RE.sub(lambda m: m.group(1).replace('.', ''), title or '')
+
+
 def _fold(title):
-    s = unicodedata.normalize('NFKD', title or '')
+    s = unicodedata.normalize('NFKD', undot(title))
     s = ''.join(c for c in s if not unicodedata.combining(c))
     return s.replace('ø', 'o').replace('Ø', 'O').replace('æ', 'ae').replace('ß', 'ss').strip()
 
