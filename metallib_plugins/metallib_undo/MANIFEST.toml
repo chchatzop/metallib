@@ -1,0 +1,13 @@
+uuid = "b34983ad-0a0b-42ba-9b31-4a16ec8a948f"
+name = "MetalLib Undo"
+authors = ["chchatzop"]
+version = "0.1.0"
+description = "Every save can be undone: tags (and renamed/moved files) go back exactly as they were."
+long_description = """
+Before each save the file's current tags are recorded (FLAC: all comments + pictures; MP3: the raw ID3
+tags, byte for byte; other formats: a full copy). If that backup cannot be made, the file is not saved.
+**Tools -> Undo a save...** restores the tags and moves renamed files back. Nothing is ever deleted.
+"""
+api = ["3.0"]
+license = "GPL-2.0-or-later"
+categories = ["other"]
