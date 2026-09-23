@@ -22,7 +22,10 @@ from PyQt6.QtCore import QUrl
 
 from test.picardtestcase import PicardTestCase
 
-from picard import PICARD_VERSION_STR
+from picard import (
+    PICARD_DISPLAY_NAME,
+    PICARD_VERSION_STR,
+)
 from picard.metadata import Metadata
 from picard.webservice.api_helpers.listenbrainz import (
     ListenBrainzAPIHelper,
@@ -77,7 +80,7 @@ class TestListenBrainzAPIHelper(PicardTestCase):
         self.assertEqual(
             track.additional_info,
             {
-                'media_player': 'MusicBrainz Picard',
+                'media_player': PICARD_DISPLAY_NAME,
                 'media_player_version': PICARD_VERSION_STR,
                 'duration_ms': 300000,
                 'recording_mbid': '00000000-0000-0000-0000-000000000001',

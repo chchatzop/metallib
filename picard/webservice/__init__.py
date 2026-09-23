@@ -92,8 +92,9 @@ COUNT_REQUESTS_DELAY_MS = 250
 
 TEMP_ERRORS_RETRIES = 5
 MAX_PENDING_AUTHORIZATION_REQUESTS = 1000
-USER_AGENT_STRING = '%s-%s/%s (%s;%s-%s)' % (
-    PICARD_ORG_NAME,
+# MetalLib: MusicBrainz asks for "App/version ( contact )"; the contact is the public repo, never
+# the user's e-mail.
+USER_AGENT_STRING = '%s/%s ( https://github.com/chchatzop/metallib ) (%s;%s-%s)' % (
     PICARD_APP_NAME,
     PICARD_VERSION_STR,
     platform.platform(),

@@ -63,6 +63,7 @@ from PyQt6 import (
 )
 
 from picard import (
+    PICARD_DISPLAY_NAME,
     log,
     tagger_instance,
 )
@@ -311,7 +312,7 @@ class MainWindow(QtWidgets.QMainWindow, PreserveGeometry):
                 func.on_exit()
 
     def setupUi(self):
-        self.setWindowTitle(_("MusicBrainz Picard"))
+        self.setWindowTitle(PICARD_DISPLAY_NAME)
 
         self.show_close_window = IS_MACOS
 
@@ -1558,7 +1559,7 @@ class MainWindow(QtWidgets.QMainWindow, PreserveGeometry):
             parent=self,
             directory=str(start_dir),
             filter=(
-                _("MusicBrainz Picard Session (%s);;All files (*)") % ("*" + SessionConstants.SESSION_FILE_EXTENSION)
+                _("MetalLib Session (%s);;All files (*)") % ("*" + SessionConstants.SESSION_FILE_EXTENSION)
             ),
         )
         if path:
@@ -1590,7 +1591,7 @@ class MainWindow(QtWidgets.QMainWindow, PreserveGeometry):
             parent=self,
             directory=str(start_dir),
             filter=(
-                _("MusicBrainz Picard Session (%s);;All files (*)") % ("*" + SessionConstants.SESSION_FILE_EXTENSION)
+                _("MetalLib Session (%s);;All files (*)") % ("*" + SessionConstants.SESSION_FILE_EXTENSION)
             ),
         )
         if path:

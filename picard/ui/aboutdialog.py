@@ -120,6 +120,15 @@ class AboutDialog(PicardDialog, SingletonDialog):
         self.ui.formats_label.setStyleSheet(muted_css)
 
     def _update_content(self):
+        # MetalLib: own name and logo; Picard's authors and copyright stay credited below (GPL).
+        from picard import PICARD_DISPLAY_NAME
+        from picard.metallib_brand import (
+            BASED_ON,
+            logo_pixmap,
+        )
+
+        self.ui.logo.setPixmap(logo_pixmap())
+        self.ui.app_name.setText(PICARD_DISPLAY_NAME)
         versions_dict = as_dict(i18n=True)
 
         # Version label
@@ -158,7 +167,7 @@ class AboutDialog(PicardDialog, SingletonDialog):
             'copyright_years': COPYRIGHT_YEARS,
             'authors_credits': authors_credits,
         }
-        self.ui.copyright_label.setText(copyright_text)
+        self.ui.copyright_label.setText(BASED_ON + '. ' + copyright_text)
 
         # Translator credits
         config = get_config()

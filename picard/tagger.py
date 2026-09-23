@@ -284,13 +284,9 @@ class Tagger(QtWidgets.QApplication):
         self.stopping = False
 
     def _setup_app_icon(self):
-        icon = QtGui.QIcon()
-        for size in (16, 24, 32, 48, 128, 256):
-            icon.addFile(
-                ":/images/{size}x{size}/{app_id}.png".format(size=size, app_id=PICARD_APP_ID),
-                QtCore.QSize(size, size),
-            )
-        self.setWindowIcon(icon)
+        from picard.metallib_brand import app_icon  # MetalLib: own icon, not Picard's logo
+
+        self.setWindowIcon(app_icon())
 
     def _init_properties_from_args_or_env(self, cmdline_args):
         """Initialize properties from command line arguments or environment"""

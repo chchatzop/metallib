@@ -22,6 +22,14 @@ import unittest
 
 from test.picardtestcase import PicardTestCase
 
+from picard import (
+    PICARD_APP_NAME,
+    PICARD_ORG_NAME,
+)
+
+
+ORG_APP = PICARD_ORG_NAME + '/' + PICARD_APP_NAME  # MetalLib: follows the renamed org/app
+
 from picard.const.appdirs import (
     cache_folder,
     config_folder,
@@ -40,36 +48,36 @@ class AppPathsTest(PicardTestCase):
 
     @unittest.skipUnless(IS_WIN, "Windows test")
     def test_config_folder_win(self):
-        self.assert_home_path_equals('~/AppData/Local/MusicBrainz/Picard', config_folder())
+        self.assert_home_path_equals('~/AppData/Local/' + ORG_APP, config_folder())
 
     @unittest.skipUnless(IS_MACOS, "macOS test")
     def test_config_folder_macos(self):
-        self.assert_home_path_equals('~/Library/Preferences/MusicBrainz/Picard', config_folder())
+        self.assert_home_path_equals('~/Library/Preferences/' + ORG_APP, config_folder())
 
     @unittest.skipUnless(IS_LINUX, "Linux test")
     def test_config_folder_linux(self):
-        self.assert_home_path_equals('~/.config/MusicBrainz/Picard', config_folder())
+        self.assert_home_path_equals('~/.config/' + ORG_APP, config_folder())
 
     @unittest.skipUnless(IS_WIN, "Windows test")
     def test_cache_folder_win(self):
-        self.assert_home_path_equals('~/AppData/Local/MusicBrainz/Picard/cache', cache_folder())
+        self.assert_home_path_equals('~/AppData/Local/' + ORG_APP + '/cache', cache_folder())
 
     @unittest.skipUnless(IS_MACOS, "macOS test")
     def test_cache_folder_macos(self):
-        self.assert_home_path_equals('~/Library/Caches/MusicBrainz/Picard', cache_folder())
+        self.assert_home_path_equals('~/Library/Caches/' + ORG_APP, cache_folder())
 
     @unittest.skipUnless(IS_LINUX, "Linux test")
     def test_cache_folder_linux(self):
-        self.assert_home_path_equals('~/.cache/MusicBrainz/Picard', cache_folder())
+        self.assert_home_path_equals('~/.cache/' + ORG_APP, cache_folder())
 
     @unittest.skipUnless(IS_WIN, "Windows test")
     def test_plugin_folder_win(self):
-        self.assert_home_path_equals('~/AppData/Roaming/MusicBrainz/Picard/plugins3', plugin_folder())
+        self.assert_home_path_equals('~/AppData/Roaming/' + ORG_APP + '/plugins3', plugin_folder())
 
     @unittest.skipUnless(IS_MACOS, "macOS test")
     def test_plugin_folder_macos(self):
-        self.assert_home_path_equals('~/Library/Application Support/MusicBrainz/Picard/plugins3', plugin_folder())
+        self.assert_home_path_equals('~/Library/Application Support/' + ORG_APP + '/plugins3', plugin_folder())
 
     @unittest.skipUnless(IS_LINUX, "Linux test")
     def test_plugin_folder_linux(self):
-        self.assert_home_path_equals('~/.local/share/MusicBrainz/Picard/plugins3', plugin_folder())
+        self.assert_home_path_equals('~/.local/share/' + ORG_APP + '/plugins3', plugin_folder())

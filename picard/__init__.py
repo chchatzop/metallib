@@ -42,10 +42,13 @@ if TYPE_CHECKING:
     from picard.tagger import Tagger
 
 
-PICARD_ORG_NAME = "MusicBrainz"
-PICARD_APP_NAME = "Picard"
-PICARD_DISPLAY_NAME = "MusicBrainz Picard"
-PICARD_APP_ID = "org.musicbrainz.Picard"
+# MetalLib: this fork must not present itself as "MusicBrainz Picard" (MetaBrainz trademark).
+# These names also decide the settings/plugin folders (%APPDATA%\MetalLib\...), keeping MetalLib's
+# settings separate from an installed Picard.
+PICARD_ORG_NAME = "MetalLib"
+PICARD_APP_NAME = "MetalLib"
+PICARD_DISPLAY_NAME = "Metal Library Manager"
+PICARD_APP_ID = "io.github.chchatzop.MetalLib"
 PICARD_DESKTOP_NAME = PICARD_APP_ID + ".desktop"
 PICARD_VERSION = Version(3, 0, 0, 'rc', 4)
 COPYRIGHT_YEARS = "2004-2026"
