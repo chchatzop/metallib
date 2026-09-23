@@ -242,17 +242,18 @@ def _on_resolved(cluster, local, hit, result=None, error=None):
     if len(fitting) == 1 and not result['more']:
         chosen = fitting[0]
     else:
+        # Best match first: pressings that fit the files, then the rest; the first is preselected.
+        ordered = fitting + [c for c in result['checked'] if not c['fits']]
         rows = [(c['version']['date'], c['version']['label'], c['version']['catalog'],
                  c['version']['format'], c['version']['desc'],
                  '%d tracks%s' % (len(c['page']['tracks']), ' — fits' if c['fits'] else ''))
-                for c in result['checked']]
+                for c in ordered]
         title = ('No pressing fits your %d files exactly — pick one' % len(local['files'])
                  if not fitting else 'Several pressings fit — pick one')
-        i = _pick(title, ('Date', 'Label', 'Catalog', 'Format', 'Description', 'Tracks'), rows,
-                  preselect=result['checked'].index(fitting[0]) if fitting else 0)
+        i = _pick(title, ('Date', 'Label', 'Catalog', 'Format', 'Description', 'Tracks'), rows)
         if i is None:
             return
-        chosen = result['checked'][i]
+        chosen = ordered[i]
     _build_album(cluster, local, hit, chosen, result['original_date'], result.get('band') or {})
 
 
