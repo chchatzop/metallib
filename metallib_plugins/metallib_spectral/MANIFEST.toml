@@ -1,0 +1,14 @@
+uuid = "1ac8e1cb-acf5-4333-a90f-4facdc2a80b8"
+name = "MetalLib Spectral"
+authors = ["chchatzop"]
+version = "0.1.0"
+description = "Advisory spectral check: fake lossless, upscaled lossy, upsampled hi-res (needs ffmpeg)."
+long_description = """
+Right-click an album or cluster -> **Spectral check...**. Measures the real bandwidth with ffmpeg
+(FFT brick-wall, mean energy, calibrated on real material) and judges the roll-off SHAPE: a lossy
+encoder's low-pass is a cliff, a dark genuine master tapers. Hi-res files get the 20.5-26 kHz
+profile check. Advisory only: nothing is changed.
+"""
+api = ["3.0"]
+license = "GPL-2.0-or-later"
+categories = ["other"]
