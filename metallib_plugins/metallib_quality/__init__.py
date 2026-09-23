@@ -3,8 +3,9 @@
 #   %_quality%          this file:  16-44, 24-96, V0, V2, 320K, 192K, VBR ('' if unknown)
 #   %_lame_settings%    MP3 only: the encoder settings LAME recorded, e.g. "-V 2 --vbr-new"
 #   $album_quality()    the label every file of this file's album/cluster agrees on,
-#                       "Mixed" when they disagree. Also works on album/cluster rows, so a
-#                       custom column with this expression flags mixed albums in the main window.
+#                       "Mixed" when they disagree. Use this in the naming script.
+#   $quality()          for a custom column: album/cluster rows show the album label (Mixed),
+#                       track/file rows show their own, so the odd track is visible on expand.
 #
 # Right-click an album or cluster -> "Quality breakdown..." lists which tracks are which quality.
 #
@@ -20,8 +21,11 @@ from mutagen.mp3 import (
 from PyQt6 import QtWidgets
 
 from picard.plugin3.api import (
+    Album,
     BaseAction,
+    Cluster,
     PluginApi,
+    Track,
 )
 
 from .quality import (
@@ -101,33 +105,40 @@ def on_file_added_to_track(api, track, file):
 
 def _container_files(item):
     """Files of an Album (matched only) or a real Cluster; None for anything else."""
-    if hasattr(item, 'tracks') and hasattr(item, 'iterfiles'):             # Album
+    if isinstance(item, Album):
         return list(item.iterfiles(save=True))
-    if getattr(item, 'special', True) is False and hasattr(item, 'iterfiles'):  # Cluster, not "Unclustered"
+    if isinstance(item, Cluster) and not item.special:       # not "Unclustered Files"
         return list(item.iterfiles())
     return None
 
 
 def _sibling_files(file):
     parent = file.parent_item
-    album = getattr(parent, 'album', None)          # Track -> Album
-    files = _container_files(album if album is not None else parent)
+    files = _container_files(parent.album if isinstance(parent, Track) else parent)
     return files if files is not None else [file]
 
 
-def _container_of_metadata(metadata):
-    # Album/cluster rows evaluate scripts with only the row's Metadata and no file, so find
-    # which loaded album or cluster owns that Metadata object.
+def _owner_of_metadata(metadata):
+    # Album/cluster/track rows evaluate scripts with only the row's Metadata and (usually) no
+    # file, so find which loaded album, track or cluster owns that Metadata object.
     tagger = _api.tagger if _api else None
     if tagger is None or metadata is None:
         return None
     for album in tagger.albums.values():
         if album.metadata is metadata:
             return album
+        for track in album.tracks:
+            if track.metadata is metadata:
+                return track
     for cluster in tagger.clusters:
         if cluster.metadata is metadata:
             return cluster
     return None
+
+
+def _container_of_metadata(metadata):
+    owner = _owner_of_metadata(metadata)
+    return None if isinstance(owner, Track) else owner
 
 
 def album_quality(parser):
@@ -137,6 +148,21 @@ def album_quality(parser):
         files = _container_files(_container_of_metadata(parser.context))
         if files is None:
             return parser.context['~quality']
+    return album_label([getattr(f, _ATTR, None) for f in files])
+
+
+def quality(parser):
+    """Per-row quality for a custom column: albums/clusters get the album label (Mixed), tracks
+    and files get their own, so expanding a Mixed album shows which track is the odd one."""
+    if parser.file is not None:
+        return file_label(getattr(parser.file, _ATTR, None)) or parser.context['~quality']
+    owner = _owner_of_metadata(parser.context)
+    if owner is None:
+        return parser.context['~quality']
+    if isinstance(owner, Track):
+        files = list(owner.files)
+    else:
+        files = _container_files(owner) or []
     return album_label([getattr(f, _ATTR, None) for f in files])
 
 
@@ -180,6 +206,15 @@ def enable(api: PluginApi) -> None:
             "`$album_quality()`\n\n"
             "Quality label shared by every file of this file's album or cluster "
             "(e.g. `16-44`, `24-96`, `V0`, `320K`, `VBR`), or `Mixed` when they disagree."
+        ),
+    )
+    api.register_script_function(
+        quality,
+        name='quality',
+        documentation=(
+            "`$quality()`\n\n"
+            "For a custom column: album and cluster rows show the album's quality (`Mixed` when "
+            "its files disagree), track and file rows show their own (e.g. `24-96`, `V0`)."
         ),
     )
     api.register_script_variable(

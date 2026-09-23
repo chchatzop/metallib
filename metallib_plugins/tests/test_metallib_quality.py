@@ -123,6 +123,7 @@ class TestAlbumQualityInPicard(PicardTestCase):
         set_plugin_uuid(TEST_UUID, 'metallib_quality_test')
         self.set_config_values(setting={'plugins3_enabled_plugins': [TEST_UUID]})
         register_script_function(self.plugin.album_quality, name='album_quality')
+        register_script_function(self.plugin.quality, name='quality')
         self.addCleanup(unregister_module_extensions, 'picard.plugins.metallib_quality_test')
 
     def _file(self, name, q):
@@ -163,3 +164,37 @@ class TestAlbumQualityInPicard(PicardTestCase):
         f = self._file('lone.flac', flac(16, 44100))
         f.metadata['~quality'] = '16-44'
         self.assertEqual(self._eval(f.metadata, f), '16-44')
+
+
+class TestQualityColumn(TestAlbumQualityInPicard):
+    """$quality() through Picard's real custom-column value provider, on every row type."""
+
+    def _column(self, obj):
+        from picard.ui.itemviews.custom_columns.script_provider import ChainedValueProvider
+        return ChainedValueProvider('$quality()').evaluate(obj)
+
+    def test_rows(self):
+        album = Album('00000000-0000-0000-0000-000000000002')
+        self.tagger.albums[album.id] = album
+        files = [self._file('t%d.flac' % n, flac(24, 48000)) for n in range(3)]
+        files.append(self._file('t3.flac', flac(24, 44100)))          # the odd track
+        for n, f in enumerate(files):
+            track = Track('00000000-0000-0000-0000-0000000002%02d' % n, album)
+            track.files.append(f)
+            f.parent_item = track
+            album.tracks.append(track)
+        empty = Track('00000000-0000-0000-0000-000000000299', album)  # track with no file
+        album.tracks.append(empty)
+
+        cluster = Cluster('Some cluster', related_album=album)       # clusters have .album too
+        self.tagger.clusters.append(cluster)
+        cf = self._file('c.mp3', mp3(250, '-V 0'))
+        cluster.files.append(cf)
+        cf.parent_item = cluster
+
+        self.assertEqual(self._column(album), MIXED)
+        self.assertEqual([self._column(t) for t in album.tracks[:4]], ['24-48'] * 3 + ['24-44'])
+        self.assertEqual([self._column(f) for f in files], ['24-48'] * 3 + ['24-44'])
+        self.assertEqual(self._column(empty), '')
+        self.assertEqual(self._column(cluster), 'V0')
+        self.assertEqual(self._column(cf), 'V0')
