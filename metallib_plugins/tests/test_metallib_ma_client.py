@@ -136,7 +136,7 @@ def test_fetch_caches_and_throttles(tmp_path):
     assert c.fetch('https://ma/a') == page              # from cache: no second request
     assert session.calls == ['https://ma/a']
     c.fetch('https://ma/b')
-    assert len(sleeps) == 1 and 1.0 <= sleeps[0] <= 1.5   # gap enforced between real requests
+    assert len(sleeps) == 1 and m.MIN_INTERVAL <= sleeps[0] <= m.MAX_INTERVAL   # gap enforced between real requests
 
 
 def test_challenge_and_short_pages_are_not_cached(tmp_path):

@@ -59,6 +59,13 @@ from .discogs_release import (
     flat_tracklist,
 )
 from .folder_parse import folder_hints
+from . import pressings_panel
+from .pressings import (
+    candidate,
+    from_discogs,
+    from_ma,
+    from_mb,
+)
 from .rules import choose
 from .source_columns import (
     METAL_ARCHIVES,
@@ -282,7 +289,16 @@ def _on_resolved(cluster, local, hit, result=None, error=None):
         if i is None:
             return
         chosen = ordered[i]
-    _build_album(cluster, local, hit, chosen, result['original_date'], result.get('band') or {})
+    album = _build_album(cluster, local, hit, chosen, result['original_date'], result.get('band') or {})
+    _record_ma(album, result, chosen['version']['album_id'])
+
+
+def _record_ma(album, result, chosen_id):
+    """Every pressing MA lists, for the Pressings panel (the ones already fetched with their fit)."""
+    items = from_ma(result['versions'], result['checked'])
+    extra = {'versions': result['versions'], 'original_date': result['original_date'],
+             'band': result.get('band') or {}}
+    _when_loaded(album, lambda: pressings_panel.record(album, METAL_ARCHIVES, items, chosen_id, extra))
 
 
 def _build_album(cluster, local, hit, chosen, original_date, band):
@@ -308,6 +324,7 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
     start_discogs(album)
     if page['cover_url']:
         thread.run_task(partial(client().fetch_bytes, page['cover_url']), partial(_on_cover, album))
+    return album
 
 
 def _on_cover(album, result=None, error=None):
@@ -383,6 +400,21 @@ def on_mb_album(api, album, metadata, release_node):
              'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
     thread.run_task(partial(_background_ma, band, title, local), partial(_on_background_ma, album))
     start_discogs(album)
+    rg = (release_node.get('release-group') or {}).get('id')
+    if rg:
+        _when_loaded(album, partial(list_mb_pressings, album, rg, release_node['id']))
+
+
+def list_mb_pressings(album, release_group_id, chosen_id):
+    """Every release in the release group, for the Pressings panel."""
+    _api.tagger.mb_api.browse_releases(partial(_on_mb_pressings, album, chosen_id),
+                                       **{'release-group': release_group_id, 'limit': '100'})
+
+
+def _on_mb_pressings(album, chosen_id, document=None, http=None, error=None):
+    if error or not document or album.id not in _api.tagger.albums:
+        return
+    pressings_panel.record(album, MUSICBRAINZ, from_mb(document.get('releases') or []), chosen_id)
 
 
 def _background_ma(band, title, local):
@@ -413,6 +445,7 @@ def _on_background_ma(album, result=None, error=None):
                 % (page['album'], version.get('format', ''), n, len(album.tracks)))
         _refresh_panel()
     _when_loaded(album, apply)
+    _record_ma(album, result['result'], version['album_id'])
 
 
 def _ma_fix(ma_album_id, band, lineup, md):
@@ -478,7 +511,10 @@ def _on_mb_release(album, rest, fetched, document=None, http=None, error=None):
         album_lengths = [round((t.metadata.length or 0) / 1000) for t in album.tracks]
         node_lengths = [round((t.get('length') or 0) / 1000)
                         for m in document.get('media') or [] for t in m.get('tracks') or []]
-        if fits(node_lengths, album_lengths):
+        ok = bool(fits(node_lengths, album_lengths))
+        _when_loaded(album, partial(pressings_panel.note, album, MUSICBRAINZ, document['id'],
+                                    len(node_lengths), ok))
+        if ok:
             return _use_mb_release(album, document)
     if rest:
         return _fetch_mb_release(album, rest, fetched)
@@ -501,6 +537,10 @@ def _use_mb_release(album, node, fitted=True):
         _status('MusicBrainz: "%s" paired with %d of %d tracks%s'
                 % (node.get('title'), n, len(album.tracks), '' if fitted else ' (no exact pressing fit)'))
         _refresh_panel()
+        pressings_panel.record(album, MUSICBRAINZ, from_mb([node]), node['id'])
+        rg = (node.get('release-group') or {}).get('id')
+        if rg:
+            list_mb_pressings(album, rg, node['id'])
     _when_loaded(album, apply)
 
 
@@ -613,16 +653,28 @@ def _background_discogs(band, title, local):
     if not best or best[0] < max(2, len(local['titles']) // 2):
         return None                                # not clearly the same album: no column rather than a wrong one
     _, release, master_id = best
-    if master_id:
+    raw = client.versions(master_id) if master_id else []
+    if raw:
         versions = [{'album_id': v.get('id'), 'catalog': v.get('catno', ''), 'format': v.get('format', ''),
                      'label': v.get('label', ''), 'country': v.get('country', '')}
-                    for v in client.versions(master_id) if v.get('id')]
+                    for v in raw if v.get('id')]
         cands, _ = narrow_pressings(versions, local['folder'], local['catalog'], local['media'])
         for v in cands[:DG_PRESSING_FETCHES]:
             rel = release if v['album_id'] == release.get('id') else client.release(v['album_id'])
             if fits([t['length'] for t in flat_tracklist(rel)], local['lengths']):
-                return rel
-    return release
+                return {'release': rel, 'versions': raw}
+    return {'release': release, 'versions': raw}
+
+
+def _dg_release_candidate(release, lengths):
+    """The release itself as a Pressings-panel entry (a release without a master has no versions list)."""
+    labels = release.get('labels') or [{}]
+    fmt = ', '.join(' '.join([f.get('name', '')] + list(f.get('descriptions') or []))
+                    for f in release.get('formats') or [])
+    secs = [t['length'] for t in flat_tracklist(release)]
+    return candidate(DISCOGS, release['id'], release.get('released'), fmt, clean_name(labels[0].get('name', '')),
+                     labels[0].get('catno'), release.get('country'), '', len(secs),
+                     bool(fits(secs, lengths)) if len(secs) == len(lengths) else False)
 
 
 def start_discogs(album):
@@ -646,6 +698,10 @@ def _on_discogs(album, result=None, error=None):
     if not result:
         _status('Discogs: no release clearly matching "%s"' % album.metadata['album'])
         return
+    versions, result = result['versions'], result['release']
+    lengths = pressings_panel.local_info(album)['lengths']
+    pressings_panel.record(album, DISCOGS, from_discogs(versions) + [_dg_release_candidate(result, lengths)],
+                           result['id'])
     built = build_node(result)
     mds = track_metadata(built['node'], fix=partial(_dg_fix, built))
     n = attach(album, DISCOGS, mds)
@@ -749,6 +805,7 @@ def _album_artist_from_path(filename, album, artist):
 
 
 def disable() -> None:
+    pressings_panel.uninstall()
     from picard import cluster as picard_cluster
     if 'album_artist_from_path' in _originals:
         picard_cluster.album_artist_from_path = _originals['album_artist_from_path']
@@ -765,6 +822,7 @@ def enable(api: PluginApi) -> None:
     api.register_options_page(MetalLibOptionsPage)
     api.register_track_metadata_processor(on_track_built)
     api.register_album_metadata_processor(on_mb_album)
+    pressings_panel.install(api)
     for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),
                       ('_ma_band_country_code', 'Band country code from Metal Archives, e.g. "IT".'),
                       ('_ma_band_status', 'Band status from Metal Archives, e.g. "Active".'),

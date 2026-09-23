@@ -259,3 +259,82 @@ def test_position_is_never_trusted_without_lengths():
     sources = [{'title': 'B', 'length': 300000, 'disc': '1', 'number': '1'},
                {'title': 'A', 'length': 200000, 'disc': '1', 'number': '2'}]
     assert r.pair_tracks(targets, sources) == {0: 1, 1: 0}
+
+
+def _pressings():
+    import importlib
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    return importlib.import_module('picard.plugins.metallib_ma_test.pressings')
+
+
+def test_pressings_rank_exact_count_first_near_misses_greyed():
+    p = _pressings()
+    local = {'track_count': 11, 'folder': 'Anthrax-Cursum_Perficio-WEB-2026-ENTiTLED', 'year': '2026'}
+    cands = [p.candidate('Discogs', 1, '2026', 'LP, Album', 'Megaforce', track_count=11, fits=True),
+             p.candidate('Discogs', 2, '2026', 'ALAC, Album', 'Nuclear Blast', track_count=11, fits=True),
+             p.candidate('Discogs', 3, '2026', 'CD, Album, Deluxe', 'Nuclear Blast', track_count=13),
+             p.candidate('Discogs', 4, '2026', 'Album', 'Ward Records')]
+    ranked = p.rank(cands, local)
+    assert [c['id'] for c, _ in ranked] == ['2', '1', '4', '3']          # digital first; unknown; deluxe last
+    assert [g for _, g in ranked] == [False, False, False, True]
+
+
+def test_pressing_description():
+    p = _pressings()
+    c = p.candidate('Metal Archives', 9, 'January 30th, 2026', 'Digital', 'Independent', track_count=7, fits=True)
+    assert p.describe(c, 7) == 'January 30th, · Digital · Independent · 7 tracks, lengths fit' or \
+        p.describe(c, 7).endswith('7 tracks, lengths fit')
+    assert p.describe(p.candidate('Discogs', 1, '2026', 'LP'), 7).endswith('checking...')
+
+
+def test_pressings_from_each_source():
+    p = _pressings()
+    ma = p.from_ma([{'album_id': '1', 'date': '2019', 'label': 'SoM', 'catalog': 'SOM 1', 'format': 'CD', 'desc': ''},
+                    {'album_id': '2', 'date': '2020', 'label': '', 'catalog': '', 'format': 'Digital', 'desc': ''}],
+                   [{'version': {'album_id': '1'}, 'page': {'tracks': [1, 2, 3]}, 'fits': True}])
+    assert [(c['id'], c['track_count'], c['fits']) for c in ma] == [('1', 3, True), ('2', None, None)]
+    mb = p.from_mb([{'id': 'abc', 'date': '1990-05-01', 'country': 'DE', 'status': 'Official',
+                     'label-info': [{'catalog-number': 'N 0151', 'label': {'name': 'Noise'}}],
+                     'media': [{'format': 'CD', 'track-count': 5}, {'format': 'CD', 'track-count': 4}]}])
+    assert (mb[0]['format'], mb[0]['label'], mb[0]['catalog'], mb[0]['track_count'], mb[0]['desc']) == \
+        ('2×CD', 'Noise', 'N 0151', 9, '')
+    dg = p.from_discogs([{'id': 77, 'released': '1990', 'format': 'CD, Album', 'label': 'Noise', 'catno': 'N 1',
+                          'country': 'Germany'}, {'title': 'no id'}])
+    assert [(c['id'], c['country']) for c in dg] == [('77', 'Germany')]
+
+
+class _FakeTrack:
+    def __init__(self, secs):
+        self.files = []
+        self.metadata = MagicMock(length=secs * 1000)
+
+
+class _FakeAlbum:
+    def __init__(self, lengths):
+        self.tracks = [_FakeTrack(s) for s in lengths]
+        self.metadata = {'catalognumber': '', 'media': '', 'originaldate': '', 'date': ''}
+
+    def iterfiles(self):
+        return iter(())
+
+
+def test_pressings_panel_record_merges_and_notes():
+    import importlib
+    _pressings()
+    panel = importlib.import_module('picard.plugins.metallib_ma_test.pressings_panel')
+    p = _pressings()
+    album = _FakeAlbum([200, 300])
+    panel.record(album, 'MusicBrainz', [p.candidate('MusicBrainz', 'a', '1990', 'CD', 'Noise', track_count=2)], 'a')
+    # A later, sparser entry for the same pressing keeps what was known.
+    panel.record(album, 'MusicBrainz', [p.candidate('MusicBrainz', 'a', country='DE'),
+                                        p.candidate('MusicBrainz', 'b', track_count=3)])
+    items = {c['id']: c for c in panel.state(album)['MusicBrainz']['items']}
+    assert (items['a']['date'], items['a']['label'], items['a']['country'], items['a']['track_count']) == \
+        ('1990', 'Noise', 'DE', 2)
+    assert panel.state(album)['MusicBrainz']['chosen'] == 'a'
+    panel.note(album, 'MusicBrainz', 'a', 2, True)
+    assert items['a']['fits'] is True
+    assert panel.local_info(album)['lengths'] == [200, 300]
+    panel.set_chosen(album, 'MusicBrainz', 'b')
+    assert panel.state(album)['MusicBrainz']['chosen'] == 'b'

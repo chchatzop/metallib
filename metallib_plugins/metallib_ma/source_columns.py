@@ -62,6 +62,11 @@ def attach(album, source, source_mds):
     """Pair `source_mds` with `album`'s tracks and store them as that source's column values.
     Returns how many tracks got a value."""
     tracks = list(album.tracks)
+    # A new pressing replaces the source's previous values everywhere, also on tracks it does not pair.
+    for track in tracks:
+        sources = getattr(track, 'source_metadata', None)
+        if sources and source in sources:
+            del sources[source]
     pairs = pair_tracks([_pairing_info(t.metadata) for t in tracks],
                         [_pairing_info(md) for md in source_mds])
     for ti, si in pairs.items():

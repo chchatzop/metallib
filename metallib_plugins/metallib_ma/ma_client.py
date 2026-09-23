@@ -3,7 +3,7 @@
 # Ported from the user's Tag & Rename tool (ma_live.py) with one deliberate change: the tracklist
 # parser keeps DISC and TRACK NUMBERS (ma_live flattened every disc into one list).
 #
-# Politeness (Metal Archives is a volunteer site): one request at a time, a random 1.0-1.5 s gap
+# Politeness (Metal Archives is a volunteer site): one request at a time, a random 0.6-0.8 s gap
 # between requests, a real browser fingerprint via curl_cffi (plain requests/urllib get a
 # Cloudflare 403), and every page is cached so it is never fetched twice.
 #
@@ -22,7 +22,7 @@ import time
 
 BASE = 'https://www.metal-archives.com'
 TIMEOUT = 30
-MIN_INTERVAL, MAX_INTERVAL = 1.0, 1.5
+MIN_INTERVAL, MAX_INTERVAL = 0.6, 0.8      # user-tested 2026-09-24: 0.6 s is fine; a little jitter kept
 CACHE_DAYS = 30                    # re-fetch a cached page after this long
 
 
