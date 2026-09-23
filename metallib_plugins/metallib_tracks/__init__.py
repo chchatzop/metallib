@@ -47,6 +47,9 @@ def _set_flag(file, status, reason):
     for md in (file.metadata, file.orig_metadata):
         md['~placement'] = status if status in (RENUMBERED, UNPLACED) else ''
         md['~placement_reason'] = reason if status in (RENUMBERED, UNPLACED) else ''
+    # Column text is only recomputed when the row updates; a file that did not move (already in
+    # "Unmatched Files") would otherwise keep showing its old, empty value.
+    file.update_item(update_selection=False)
 
 
 # "... - 01 - Title", "01. Title", "01 - Title", "1-01 Title": the text after the LAST track-number
