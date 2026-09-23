@@ -58,6 +58,7 @@ from .discogs_release import (
     clean_name,
     flat_tracklist,
 )
+from .folder_parse import folder_hints
 from .rules import choose
 from .source_columns import (
     METAL_ARCHIVES,
@@ -76,6 +77,7 @@ FAKE_ID_TAGS = ('musicbrainz_albumid', 'musicbrainz_releasegroupid', 'musicbrain
 
 _api = None
 _client = None
+_originals = {}
 
 
 def client():
@@ -212,13 +214,16 @@ def _resolve(hit, local, max_fetches=MAX_PRESSING_FETCHES):
 def _local_info(cluster):
     files = list(cluster.iterfiles())
     first = files[0] if files else None
+    hints = folder_hints(first.filename) if first else {}
+    md = first.orig_metadata if first else {}
     return {
         'files': files,
-        'band': cluster.metadata['albumartist'] or (first.orig_metadata['albumartist'] if first else ''),
-        'album': cluster.metadata['album'] or (first.orig_metadata['album'] if first else ''),
+        'band': cluster.metadata['albumartist'] or (md['albumartist'] or md['artist'] if first else '')
+                or hints.get('artist', ''),
+        'album': cluster.metadata['album'] or (md['album'] if first else '') or hints.get('album', ''),
         'folder': os.path.basename(os.path.dirname(first.filename)) if first else '',
-        'catalog': first.orig_metadata['catalognumber'] if first else '',
-        'media': first.orig_metadata['media'] if first else '',
+        'catalog': (md['catalognumber'] if first else '') or hints.get('catalog', ''),
+        'media': (md['media'] if first else '') or hints.get('media', ''),
         'lengths': [round((f.orig_metadata.length or 0) / 1000) for f in files],
     }
 
@@ -725,10 +730,37 @@ class LoadFromMetalArchives(BaseAction):
                 start_lookup(obj)
 
 
+# -- folder names as hints for untagged files --------------------------------------------------------
+
+def _album_artist_from_path(filename, album, artist):
+    """Replaces Picard's clustering fallback for files WITHOUT album/artist tags: the folder parser
+    understands scene names ("Acid_Reign-Obnoxious-(CDFLAG39)-CD-FLAC-1990-GRP") and the library's
+    "Artist (CC)/YYYY - Album [..]" layout. Used only to group files and name the cluster (which is
+    what lookups search with) -- never written into a file's tags."""
+    if album and artist:
+        return album, artist
+    try:
+        hints = folder_hints(filename)
+    except Exception:
+        hints = {}
+    if hints.get('album') and hints.get('confidence') != 'low':
+        return album or hints['album'], artist or hints['artist']
+    return _originals['album_artist_from_path'](filename, album, artist)
+
+
+def disable() -> None:
+    from picard import cluster as picard_cluster
+    if 'album_artist_from_path' in _originals:
+        picard_cluster.album_artist_from_path = _originals['album_artist_from_path']
+
+
 def enable(api: PluginApi) -> None:
     global _api
     _api = api
     api.register_cluster_action(LoadFromMetalArchives)
+    from picard import cluster as picard_cluster
+    _originals['album_artist_from_path'] = picard_cluster.album_artist_from_path
+    picard_cluster.album_artist_from_path = _album_artist_from_path
     api.plugin_config.register_option('discogs_token', '')
     api.register_options_page(MetalLibOptionsPage)
     api.register_track_metadata_processor(on_track_built)

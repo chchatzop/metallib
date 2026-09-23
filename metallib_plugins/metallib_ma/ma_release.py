@@ -57,7 +57,7 @@ def media_hint(folder_name, media_tag=''):
     k = format_kind(media_tag)
     if k:
         return k
-    low = (folder_name or '').lower()
+    low = (folder_name or '').lower().replace('_', ' ')      # scene names glue tokens with "_"
     for kind, pattern in _HINTS:
         if re.search(pattern, low):
             return kind
