@@ -10,6 +10,7 @@ import re
 
 MB = 'MusicBrainz'
 MA = 'Metal Archives'
+DG = 'Discogs'          # third column: only fills what neither MA nor MB has
 
 # Tags where Metal Archives is the better authority for metal (the user's list, plus the lineup
 # credits MA carries and MusicBrainz rarely has for underground releases).
@@ -25,15 +26,15 @@ MB_FIRST_PREFIXES = ('musicbrainz_',)
 # whose date belongs to the pressing the user picked.
 DATE_TAGS = {'date', 'originaldate', 'releasedate'}
 
-DEFAULT_ORDER = (MA, MB)        # everything else: MA if it has a value, else MB
+DEFAULT_ORDER = (MA, MB, DG)    # everything else: MA if it has a value, else MB, else Discogs
 
 
 def order_for(tag):
     """Sources to try for `tag`, most preferred first."""
     if tag in MB_FIRST or tag.startswith(MB_FIRST_PREFIXES):
-        return (MB, MA)
+        return (MB, MA, DG)
     if tag in MA_FIRST or tag.startswith(MA_FIRST_PREFIXES):
-        return (MA, MB)
+        return (MA, MB, DG)
     return DEFAULT_ORDER
 
 
@@ -48,7 +49,7 @@ def choose(tag, source_values):
     if not have:
         return None
     if tag in DATE_TAGS:
-        best = max(have, key=lambda name: (_precision(have[name][0]), name == MA))
+        best = max(have, key=lambda name: (_precision(have[name][0]), name == MA, name == MB))
         return best, have[best]
     for name in order_for(tag):
         if name in have:

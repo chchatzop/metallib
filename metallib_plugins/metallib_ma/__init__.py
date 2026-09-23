@@ -28,6 +28,7 @@ from picard.metadata import Metadata
 from picard.plugin3.api import (
     BaseAction,
     Cluster,
+    OptionsPage,
     PluginApi,
 )
 from picard.util import thread
@@ -47,8 +48,15 @@ from .ma_release import (
     mb_genres,
     narrow_pressings,
     rank_hits,
+    title_key,
     title_score,
     track_count_compatible,
+)
+from .discogs_client import DiscogsClient
+from .discogs_release import (
+    build_node,
+    clean_name,
+    flat_tracklist,
 )
 from .rules import choose
 from .source_columns import (
@@ -292,6 +300,7 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
     _status('loaded "%s" (%s %s) from Metal Archives' % (page['album'], version.get('format', ''),
                                                           version.get('catalog', '')))
     start_mb_lookup(album, page['band'], page['album'])
+    start_discogs(album)
     if page['cover_url']:
         thread.run_task(partial(client().fetch_bytes, page['cover_url']), partial(_on_cover, album))
 
@@ -368,6 +377,7 @@ def on_mb_album(api, album, metadata, release_node):
              'media': (media[0].get('format') or '') if media else '',
              'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
     thread.run_task(partial(_background_ma, band, title, local), partial(_on_background_ma, album))
+    start_discogs(album)
 
 
 def _background_ma(band, title, local):
@@ -539,6 +549,144 @@ def apply_rules(album):
     return changed
 
 
+# -- Discogs: third source column -------------------------------------------------------------------
+
+DISCOGS = 'Discogs'
+DG_PRESSING_FETCHES = 4
+_discogs = None
+
+
+def discogs():
+    global _discogs
+    if _discogs is None:
+        from picard.const.appdirs import plugin_folder
+        folder = os.path.join(os.path.dirname(os.path.abspath(plugin_folder())), 'metallib')
+        os.makedirs(folder, exist_ok=True)
+        _discogs = DiscogsClient(os.path.join(folder, 'discogs_cache.sqlite'),
+                                 lambda: _api.plugin_config['discogs_token'])
+    return _discogs
+
+
+def _split_dg_title(title):
+    """Discogs search titles are "Artist - Title"."""
+    band, _, album = (title or '').partition(' - ')
+    return (clean_name(band), album) if album else ('', title or '')
+
+
+def _overlap(release, titles):
+    theirs = {title_key(t['title']) for t in flat_tracklist(release)}
+    return sum(1 for t in titles if title_key(t) in theirs)
+
+
+def _background_discogs(band, title, local):
+    """Thread: master by title/artist, confirmed by track-title overlap; then the pressing."""
+    client = discogs()
+    best = None                                    # (overlap, release, master_id)
+    for kind, hits in (('master', client.search_masters(band, title)), ('release', None)):
+        if kind == 'release':
+            if best:
+                break
+            hits = client.search_releases(band, title)
+        ranked = []
+        for h in hits or []:
+            hb, ht = _split_dg_title(h.get('title'))
+            score = title_score(ht, title)
+            if score >= 0.8 and (not hb or title_score(hb, band) >= 0.8):
+                ranked.append((score, h))
+        ranked.sort(key=lambda sh: -sh[0])
+        for _, h in ranked[:3]:
+            if kind == 'master':
+                m = client.master(h['id'])
+                rel = client.release(m['main_release']) if m.get('main_release') else None
+                mid = h['id']
+            else:
+                rel, mid = client.release(h['id']), None
+            if rel:
+                ov = _overlap(rel, local['titles'])
+                if best is None or ov > best[0]:
+                    best = (ov, rel, mid)
+    if not best or best[0] < max(2, len(local['titles']) // 2):
+        return None                                # not clearly the same album: no column rather than a wrong one
+    _, release, master_id = best
+    if master_id:
+        versions = [{'album_id': v.get('id'), 'catalog': v.get('catno', ''), 'format': v.get('format', ''),
+                     'label': v.get('label', ''), 'country': v.get('country', '')}
+                    for v in client.versions(master_id) if v.get('id')]
+        cands, _ = narrow_pressings(versions, local['folder'], local['catalog'], local['media'])
+        for v in cands[:DG_PRESSING_FETCHES]:
+            rel = release if v['album_id'] == release.get('id') else client.release(v['album_id'])
+            if fits([t['length'] for t in flat_tracklist(rel)], local['lengths']):
+                return rel
+    return release
+
+
+def start_discogs(album):
+    if not discogs().has_token():
+        return
+    def begin():
+        files = list(album.iterfiles())
+        local = {'titles': [t.metadata['title'] for t in album.tracks],
+                 'lengths': [round((t.metadata.length or 0) / 1000) for t in album.tracks],
+                 'folder': os.path.basename(os.path.dirname(files[0].filename)) if files else '',
+                 'catalog': album.metadata['catalognumber'], 'media': album.metadata['media']}
+        thread.run_task(partial(_background_discogs, album.metadata['albumartist'], album.metadata['album'], local),
+                        partial(_on_discogs, album))
+    _when_loaded(album, begin)
+
+
+def _on_discogs(album, result=None, error=None):
+    if error:
+        _api.logger.warning("Discogs lookup failed: %s", error)
+        return
+    if not result:
+        _status('Discogs: no release clearly matching "%s"' % album.metadata['album'])
+        return
+    built = build_node(result)
+    mds = track_metadata(built['node'], fix=partial(_dg_fix, built))
+    n = attach(album, DISCOGS, mds)
+    apply_rules(album)
+    _status('Discogs: "%s" (%s) paired with %d of %d tracks'
+            % (result.get('title'), result.get('id'), n, len(album.tracks)))
+    _refresh_panel()
+
+
+def _dg_fix(built, md):
+    for tag in [t for t in md if t.startswith('musicbrainz_')]:
+        del md[tag]                                     # placeholders, never real MusicBrainz ids
+    if built['genres']:
+        md['genre'] = built['genres']
+    try:
+        credits = built['credits'][int(md['~absolutetracknumber'] or 0) - 1]
+    except (ValueError, IndexError):
+        credits = {}
+    for tag, names in credits.items():
+        md[tag] = names
+
+
+class MetalLibOptionsPage(OptionsPage):
+    NAME = 'metallib'
+    TITLE = 'MetalLib'
+    PARENT = 'plugins'
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QtWidgets.QFormLayout(self)
+        self.token = QtWidgets.QLineEdit(self)
+        self.token.setEchoMode(QtWidgets.QLineEdit.EchoMode.Password)
+        self.token.setPlaceholderText('your personal access token from discogs.com/settings/developers')
+        layout.addRow('Discogs token:', self.token)
+        note = QtWidgets.QLabel('Needed for the Discogs column. It is stored in MetalLib\'s settings and only '
+                                'ever sent to api.discogs.com. Leave empty to skip Discogs.')
+        note.setWordWrap(True)
+        layout.addRow(note)
+
+    def load(self):
+        self.token.setText(self.api.plugin_config['discogs_token'])
+
+    def save(self):
+        self.api.plugin_config['discogs_token'] = self.token.text().strip()
+
+
 def _pick(title, headers, rows, preselect=0):
     """Modal list picker; returns the chosen row index or None."""
     dialog = QtWidgets.QDialog(_api.tagger.window)
@@ -581,6 +729,8 @@ def enable(api: PluginApi) -> None:
     global _api
     _api = api
     api.register_cluster_action(LoadFromMetalArchives)
+    api.plugin_config.register_option('discogs_token', '')
+    api.register_options_page(MetalLibOptionsPage)
     api.register_track_metadata_processor(on_track_built)
     api.register_album_metadata_processor(on_mb_album)
     for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),

@@ -81,6 +81,6 @@ def set_own_source(track, source, metadata):
 
 
 def _ordered(sources):
-    # Always MusicBrainz first, then Metal Archives, then anything else.
-    order = [MUSICBRAINZ, METAL_ARCHIVES]
+    # Always MusicBrainz first, then Metal Archives, then Discogs, then anything else.
+    order = [MUSICBRAINZ, METAL_ARCHIVES, 'Discogs']
     return dict(sorted(sources.items(), key=lambda kv: order.index(kv[0]) if kv[0] in order else len(order)))
