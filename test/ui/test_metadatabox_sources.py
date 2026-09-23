@@ -97,6 +97,8 @@ class TestSources(PicardTestCase):
 class _Box(QtWidgets.QTableWidget):
     """A real Qt table running MetadataBox's own source-column methods."""
 
+    COLUMN_TAG = MetadataBox.COLUMN_TAG
+    COLUMN_ORIG = MetadataBox.COLUMN_ORIG
     COLUMN_NEW = MetadataBox.COLUMN_NEW
     _set_source_columns = MetadataBox._set_source_columns
     _source_of_column = MetadataBox._source_of_column
@@ -187,3 +189,47 @@ class TestSourceRowsStay(PicardTestCase):
         sources.use_source_value([f], 'Metal Archives', 'catalognumber', apply_tag_values)
         self.assertEqual(f.metadata['catalognumber'], 'MIM7324-2CD')
         self.assertNotIn('catalognumber', f.metadata.deleted_tags)
+
+
+class TestCopyFromSourceColumns(PicardTestCase):
+    """Ctrl+C on a MusicBrainz / Metal Archives cell crashed with KeyError: 3 (user report)."""
+
+    class _Clipboard:
+        text = None
+
+        def setText(self, text):
+            self.text = text
+
+    def _box(self):
+        box = _Box()
+        box._copy_single_item = MetadataBox._copy_single_item.__get__(box)
+        box._get_row_info = MetadataBox._get_row_info.__get__(box)
+        tag_diff = TagDiff()
+        tag_diff.add('artist', old=['Iron Curtain'], new=['Iron Curtain'])
+        tag_diff.update_tag_names()
+        tag_diff.sources = {'MusicBrainz': {'artist': ['Iron Curtain (ES)']}, 'Metal Archives': {'artist': sources.DIFFERENT}}
+        box.tag_diff = tag_diff
+        box._set_source_columns(list(tag_diff.sources))
+        for c in range(5):
+            box.get_item(0, c)
+        box.clipboard = self._Clipboard()
+        box.tagger = type('T', (), {'clipboard': lambda s: box.clipboard})()
+        return box
+
+    def test_copy_source_cell(self):
+        box = self._box()
+        box.setCurrentCell(0, 3)
+        box._copy_single_item()
+        self.assertEqual(box.clipboard.text, 'Iron Curtain (ES)')
+
+    def test_copy_differing_source_cell_copies_nothing(self):
+        box = self._box()
+        box.setCurrentCell(0, 4)
+        box._copy_single_item()
+        self.assertIsNone(box.clipboard.text)
+
+    def test_copy_new_value_still_works(self):
+        box = self._box()
+        box.setCurrentCell(0, 2)
+        box._copy_single_item()
+        self.assertEqual(box.clipboard.text, 'Iron Curtain')

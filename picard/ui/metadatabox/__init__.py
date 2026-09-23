@@ -470,7 +470,10 @@ class MetadataBox(QtWidgets.QTableWidget):
             removed = self.tag_diff.tag_status(tag) == TagStatus.REMOVED
             # Don't copy the displayed value for removed tags in the new column,
             # as it does not represent the actual new state.
-            if col == self.COLUMN_NEW and removed:
+            source_values = metallib_sources.cell_values(self, item.row(), col)
+            if source_values is not None:
+                new = source_values or None     # MetalLib: a source cell copies as that source's value
+            elif col == self.COLUMN_NEW and removed:
                 new = None
             else:
                 new = value[self.COLUMN_NEW] if col == self.COLUMN_NEW else None
@@ -542,6 +545,12 @@ class MetadataBox(QtWidgets.QTableWidget):
             self.tagger.clipboard().setText(tag)
             return
         tag, value = self._get_row_info(item.row())
+        source_values = metallib_sources.cell_values(self, item.row(), column)
+        if source_values is not None:
+            # MetalLib: a source column (MusicBrainz / Metal Archives) -- copy what that source says.
+            if source_values:
+                self.tagger.clipboard().setText(MULTI_VALUED_JOINER.join(source_values))
+            return
         value = value[column]
         if column == self.COLUMN_NEW and self.tag_diff.tag_status(tag) == TagStatus.REMOVED:
             value = []

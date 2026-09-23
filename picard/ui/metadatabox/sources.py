@@ -105,3 +105,18 @@ def use_source_value(objects, source, tag, apply_tag_values):
             record = obj.value_sources = {}
         record[tag] = source
     return changed
+
+
+def cell_values(box, row, column):
+    """Values shown in a source-column cell of the metadata box ([] when empty or differing), or
+    None when `column` is not a source column. A plain function (not a MetadataBox method) so
+    stand-in boxes in upstream tests, which have no source columns, keep working."""
+    names = getattr(box, '_source_names', None)
+    tag_diff = getattr(box, 'tag_diff', None)
+    if not names or tag_diff is None:
+        return None
+    index = column - (box.COLUMN_NEW + 1)
+    if not 0 <= index < len(names):
+        return None
+    values = tag_diff.sources.get(names[index], {}).get(tag_diff.tag_names[row], [])
+    return [] if values is DIFFERENT else list(values)
