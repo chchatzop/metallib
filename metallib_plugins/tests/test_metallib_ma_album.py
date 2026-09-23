@@ -114,6 +114,9 @@ class TestMetalArchivesAlbumInPicard(PicardTestCase):
                          ('Black Metal', 'Norway', 'NO'))
         self.assertEqual({t.metadata['genre'] for t in album.tracks}, {'Black Metal'})
         self.assertEqual({t.metadata['~ma_band_country_code'] for t in album.tracks}, {'NO'})
+        src = album.tracks[3].source_metadata['Metal Archives']
+        self.assertEqual(src['title'], 'Dødskamp (Norwegian version) (Bonus Track)')
+        self.assertEqual(src['catalognumber'], 'SOM 532D')
         got = [(t.metadata['discnumber'], t.metadata['tracknumber'], t.metadata['title'], t.metadata.length)
                for t in album.tracks]
         self.assertEqual(got, [('1', '1', 'Abyssos Antithesis', 329000), ('1', '2', 'Tunnel of Set VIII', 46000),

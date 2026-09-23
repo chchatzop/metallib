@@ -106,6 +106,12 @@ class MetalArchivesAlbum(Album):
         self._strip_fake_ids(track.metadata)
         track.metadata['~ma_album_id'] = self.ma_info['album_id']
         self._apply_band(track.metadata)
+        # What Metal Archives says, shown as its own column in the tag panel (metadatabox/sources.py).
+        ma = Metadata()
+        ma.copy(track.metadata)
+        sources = getattr(track, 'source_metadata', None) or {}
+        sources['Metal Archives'] = ma
+        track.source_metadata = sources
         return track
 
     def _apply_band(self, metadata):
