@@ -38,6 +38,7 @@ from picard.plugin3.api import (
 from picard.similarity import similarity2
 
 from .placement import (
+    ASSUMED,
     RENUMBERED,
     UNPLACED,
     place,
@@ -58,8 +59,8 @@ _resolving = False
 def _set_flag(file, status, reason):
     setattr(file, _ATTR, (status, reason))
     for md in (file.metadata, file.orig_metadata):
-        md['~placement'] = status if status in (RENUMBERED, UNPLACED) else ''
-        md['~placement_reason'] = reason if status in (RENUMBERED, UNPLACED) else ''
+        md['~placement'] = status if status in (RENUMBERED, UNPLACED, ASSUMED) else ''
+        md['~placement_reason'] = reason if status in (RENUMBERED, UNPLACED, ASSUMED) else ''
     # Column text is only recomputed when the row updates; a file that did not move (already in
     # "Unmatched Files") would otherwise keep showing its old, empty value.
     file.update_item(update_selection=False)
@@ -251,7 +252,7 @@ class PlacementReport(BaseAction):
             lines = []
             for f in album.iterfiles():
                 status, reason = getattr(f, _ATTR, ('', ''))
-                if status in (RENUMBERED, UNPLACED):
+                if status in (RENUMBERED, UNPLACED, ASSUMED):
                     lines.append("&nbsp;&nbsp;<b>%s</b> %s — %s" % (
                         status, _html(os.path.basename(f.filename)), _html(reason)))
             head = "<b>%s</b>" % _html(album.metadata['album'])

@@ -194,3 +194,12 @@ def test_lineup_track_specific_roles():
 def test_layout_and_art_are_not_invented_as_tags():
     tags = r.lineup_tags(LINEUP_1349, 1)
     assert not any('layout' in t or 'art' in t for t in tags)
+
+
+def test_lineup_skips_credits_that_are_not_performances():
+    lineup = [{'name': 'Charlie Benante', 'roles': 'Drums, Percussion, Cover concept', 'section': 'members'},
+              {'name': 'Bob Brunner', 'roles': 'Pre-production', 'section': 'misc'},
+              {'name': 'Jay Ruston', 'roles': 'Producer, Mixing', 'section': 'misc'}]
+    tags = r.lineup_tags(lineup, 1)
+    assert tags == {'performer:drums': ['Charlie Benante'], 'performer:percussion': ['Charlie Benante'],
+                    'producer': ['Jay Ruston'], 'mixer': ['Jay Ruston']}

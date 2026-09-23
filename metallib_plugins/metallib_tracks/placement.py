@@ -31,6 +31,7 @@ _JUNK_TITLE_RE = re.compile(r'^\s*(?:(?:audio\s+)?track|piste|pista|titel|untitl
 OK = 'ok'
 RENUMBERED = 'renumbered'
 UNPLACED = 'unplaced'
+ASSUMED = 'assumed'     # the only free track left with a matching length: placed, but flagged
 
 _BRACKETS_RE = re.compile(r'\s*[\(\[][^\)\]]*[\)\]]')
 
@@ -41,6 +42,29 @@ def _fold(title):
     return s.replace('ø', 'o').replace('Ø', 'O').replace('æ', 'ae').replace('ß', 'ss').strip()
 
 
+def _initials(title):
+    """"Target on My Back" -> "tomb" (letters/digits of each word's first character)."""
+    return ''.join(w[0] for w in re.findall(r"[A-Za-z0-9]+", title or '')).lower()
+
+
+def _acronym(title):
+    """"T.O.M.B." / "T.O.M.B" / "TOMB" -> "tomb"; None when the title is not written as an acronym
+    (dotted letters, or one all-caps word of 2-8 letters)."""
+    t = (title or '').strip()
+    if re.fullmatch(r'(?:[A-Za-z0-9]\.){2,}[A-Za-z0-9]?\.?', t):
+        return re.sub(r'[^A-Za-z0-9]', '', t).lower()
+    if re.fullmatch(r'[A-Z0-9]{2,8}', t):
+        return t.lower()
+    return None
+
+
+def is_initialism_of(short, long):
+    """True when `short` is written as an acronym of `long`'s words: "T.O.M.B." ~ "Target on My Back"."""
+    acro = _acronym(short)
+    return bool(acro) and len(acro) >= 3 and len(re.findall(r"[A-Za-z0-9]+", long or '')) == len(acro) \
+        and _initials(long) == acro
+
+
 def title_similarity(similarity, a, b, raw=False):
     """Best of the raw and the bracket-stripped comparison: "(Bonus Track)", "(Remastered)"
     and similar suffixes must not hide an otherwise identical title. raw=True compares the full
@@ -48,6 +72,8 @@ def title_similarity(similarity, a, b, raw=False):
     a, b = _fold(a), _fold(b)
     if not a or not b:
         return 0.0
+    if is_initialism_of(a, b) or is_initialism_of(b, a):
+        return 1.0                  # Anthrax "T.O.M.B." is "Target on My Back"; the length still has to agree
     best = similarity(a, b)
     if raw:
         return best
@@ -198,8 +224,34 @@ def place(files, tracks, similarity):
         if not progress:
             break
 
+    # Last free tracks (user rule 2026-09-23): "1 empty spot and 1 file unmatched with the same duration
+    # -> match it even if the name is wrong, and flag it". Once at least half of the album's files are
+    # placed by title the release is confirmed; then leftover files that fit EXACTLY ONE free track by
+    # length (within DUR_OK_S, one-to-one) go there, flagged ASSUMED (Picard's match colour shows the
+    # title mismatch). Anything ambiguous stays unplaced.
+    assumed = {}
+    if final and len(final) * 2 >= len(files):
+        taken = {ti for ti, _ in final.values()}
+        free = [i for i in range(len(tracks)) if i not in taken and i not in blocked]
+        left = [fi for fi in range(len(files)) if fi not in final]
+        fits = {}
+        for fi in left:
+            flen = files[fi].get('length') or 0
+            fits[fi] = [ti for ti in free if flen and tracks[ti].get('length')
+                        and abs(flen - tracks[ti]['length']) / 1000.0 <= DUR_OK_S]
+        picks = [fits[fi][0] for fi in left if len(fits[fi]) == 1]
+        for fi in left:
+            if len(fits[fi]) == 1 and picks.count(fits[fi][0]) == 1:
+                assumed[fi] = fits[fi][0]
+
     out = []
     for fi in range(len(files)):
+        if fi in assumed:
+            ti = assumed[fi]
+            out.append({'track': ti, 'status': ASSUMED,
+                        'reason': 'the only free track with this length (%s "%s"); the title "%s" does not match'
+                        % (_label(tracks[ti]), tracks[ti].get('title'), files[fi].get('title'))})
+            continue
         if fi not in final:
             out.append({'track': None, 'status': UNPLACED, 'reason': reasons.get(fi, '')})
             continue

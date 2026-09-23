@@ -351,6 +351,21 @@ def _track_numbers(qualifier):
     return nums or None
 
 
+# Words that make a role a PERFORMANCE (an instrument or the voice). Anything else in a lineup that
+# is not a known staff role (_ROLE_TAGS) is skipped rather than invented as "performer:<role>".
+_INSTRUMENT_WORDS = ('vocal', 'voice', 'choir', 'guitar', 'bass', 'drum', 'percussion', 'keyboard',
+                     'synth', 'piano', 'organ', 'violin', 'viola', 'cello', 'flute', 'trumpet', 'saxophone',
+                     'trombone', 'horn', 'harp', 'accordion', 'mandolin', 'banjo', 'bagpipe', 'whistle',
+                     'harmonica', 'sitar', 'oud', 'bouzouki', 'lute', 'clarinet', 'oboe', 'bassoon', 'tuba',
+                     'sample', 'effects', 'noise', 'electronics', 'turntable', 'programming', 'orchestra',
+                     'strings', 'narration', 'spoken', 'growl', 'scream', 'chant', 'theremin', 'didgeridoo')
+
+
+def is_instrument(role):
+    role = (role or '').lower()
+    return any(w in role for w in _INSTRUMENT_WORDS)
+
+
 def lineup_tags(lineup, track_position):
     """Credit tags for the track at absolute position `track_position` (1-based, across discs --
     MA's "(tracks 1-8, 10)" counts that way): {tag: [names]}."""
@@ -368,6 +383,8 @@ def lineup_tags(lineup, track_position):
                 continue
             if key in _ROLE_TAGS:
                 tag = _ROLE_TAGS[key]
+            elif not is_instrument(key):
+                continue            # "Cover concept", "Pre-production", ...: a credit, not a performance
             else:
                 instrument = ' '.join(_SINGULAR.get(w, w) for w in key.split())
                 if extra:

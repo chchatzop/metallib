@@ -240,12 +240,14 @@ class TestResolveInPicard(PicardTestCase):
         self.plugin.resolve(self.album, [a, b, c])
         self.assertIs(a.parent_item, self.album.tracks[4])
         self.assertIs(b.parent_item, self.album.tracks[2])
-        self.assertIs(c.parent_item, self.album.unmatched_files)
+        # c's title tag says track 1 but its audio is 3:24 = track 2, the only free track with that length:
+        # placed there by the "last free track" rule and flagged (user rule 2026-09-23).
+        self.assertIs(c.parent_item, self.album.tracks[1])
         self.assertEqual(a.metadata['~placement'], 'renumbered')
         self.assertEqual(a.metadata['tracknumber'], '5')                      # takes the track's number
         self.assertEqual(b.metadata['~placement'], '')
-        self.assertEqual(c.metadata['~placement'], 'unplaced')
-        self.assertIn('audio is 3:24 vs 5:30', c.metadata['~placement_reason'])
+        self.assertEqual(c.metadata['~placement'], 'assumed')
+        self.assertIn('does not match', c.metadata['~placement_reason'])
 
     def test_track_already_holding_a_file_is_not_doubled(self):
         keep = self._file('keep.flac', 'Towers upon Towers', '4:50')
@@ -462,3 +464,63 @@ class TestFingerprintInPicard(TestResolveInPicard):
         mb['musicbrainz_recordingid'] = 'rec-from-mb-column'
         t.source_metadata = {'MusicBrainz': mb}
         self.assertEqual(self.plugin._recording_ids_of_track(t), {'rec-from-mb-column'})
+
+
+def test_initialism_title_is_placed():
+    # Anthrax "Cursum Perficio": the file is tagged "T.O.M.B.", the source says "Target on My Back";
+    # track 04 (4:36) is within 5 s, so duration alone could not decide.
+    tracks = [{'title': "Everybody's Got a Plan", 'length': s('4:36'), 'number': '4'},
+              {'title': 'Target on My Back', 'length': s('4:31'), 'number': '9'}]
+    res = place(files(('T.O.M.B.', '4:31', '')), tracks, similarity2)
+    assert (res[0]['track'], res[0]['status']) == (1, OK)
+
+
+def test_initialism_needs_matching_words_and_length():
+    tracks = [{'title': 'Target on My Back', 'length': s('4:31'), 'number': '9'}]
+    assert place(files(('T.O.M.B.', '7:00', '')), tracks, similarity2)[0]['status'] == UNPLACED   # length contradicts
+    tracks2 = [{'title': 'Tomb of the Mutilated', 'length': s('4:31'), 'number': '1'}]
+    assert run(files(('T.O.M.B.', '4:31', '')), tracks2) == [(None, UNPLACED)]   # "totm" is not "tomb"
+
+
+def test_is_initialism_of():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'metallib_tracks'))
+    import placement as p
+    assert p.is_initialism_of('T.O.M.B.', 'Target on My Back')
+    assert p.is_initialism_of('TOMB', 'Target on My Back')
+    assert not p.is_initialism_of('T.O.M.B.', 'Tomb of the Mutilated')
+    assert not p.is_initialism_of('Tomb', 'Target on My Back')          # an ordinary word, not an acronym
+
+
+# --- last free track (user rule: 1 empty spot + 1 leftover file with the same duration) ------------
+
+from placement import ASSUMED  # noqa: E402
+
+
+def test_last_free_track_is_assumed():
+    # Anthrax: 10 files placed by title, "Target on My Back" empty, a file titled "Something Else" 4:31.
+    tracks = [{'title': 'Song %d' % i, 'length': s('3:%02d' % (10 + i * 4)), 'number': str(i + 1)} for i in range(10)]
+    tracks.append({'title': 'Target on My Back', 'length': s('4:31'), 'number': '11'})
+    fs_ = files(*[(t['title'], '3:%02d' % (10 + i * 4), '') for i, t in enumerate(tracks[:10])])
+    fs_ += files(('Something Else', '4:32', ''))
+    res = place(fs_, tracks, similarity2)
+    assert (res[-1]['track'], res[-1]['status']) == (10, ASSUMED)
+    assert all(r['status'] == OK for r in res[:10])
+
+
+def test_last_free_track_needs_matching_length():
+    tracks = [{'title': 'A', 'length': s('3:00'), 'number': '1'}, {'title': 'B', 'length': s('4:31'), 'number': '2'}]
+    res = place(files(('A', '3:00', ''), ('Zzz', '6:00', '')), tracks, similarity2)
+    assert res[1]['status'] == UNPLACED
+
+
+def test_no_assumption_on_an_unconfirmed_release():
+    # Nothing placed by title (e.g. a wrong release): leftover lengths may coincide, but never assume.
+    tracks = [{'title': 'X', 'length': s('4:31'), 'number': '1'}]
+    assert place(files(('Unrelated', '4:31', '')), tracks, similarity2)[0]['status'] == UNPLACED
+
+
+def test_two_leftovers_two_free_tracks_by_unique_length():
+    tracks = [{'title': 'A', 'length': s('3:00'), 'number': '1'}, {'title': 'B', 'length': s('4:00'), 'number': '2'},
+              {'title': 'C', 'length': s('5:00'), 'number': '3'}, {'title': 'D', 'length': s('6:00'), 'number': '4'}]
+    res = place(files(('A', '3:00', ''), ('B', '4:00', ''), ('x', '6:01', ''), ('y', '5:02', '')), tracks, similarity2)
+    assert [(r['track'], r['status']) for r in res[2:]] == [(3, ASSUMED), (2, ASSUMED)]

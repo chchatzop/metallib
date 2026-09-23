@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(not FF, reason='ffmpeg is needed')
 
 
 def _noise(sr):
-    return ['-f', 'lavfi', '-i', 'anoisesrc=color=pink:sample_rate=%d:duration=25' % sr]
+    return ['-f', 'lavfi', '-i', 'anoisesrc=color=pink:sample_rate=%d:duration=25:seed=7' % sr]   # fixed seed: repeatable
 
 
 def _run(*args):
