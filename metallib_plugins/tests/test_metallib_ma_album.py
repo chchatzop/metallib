@@ -405,3 +405,17 @@ def test_hidden_naming_facts_follow_ma_band_and_the_catalog_source():
     # The user took the catalog from MusicBrainz: the edition notes describe that pressing.
     got = m._hidden_facts(sources, {'catalognumber': 'MusicBrainz'}, {'catalognumber': 'Metal Archives'})
     assert got['~releasecomment'] == ['Japanese edition'] and got['~ma_band_country_code'] == ['NO']
+
+
+def test_session_restore_helpers():
+    assert r.pressing_id_of('metallib-ma-1405574') == '1405574'
+    assert r.pressing_id_of('0b3a2c1d-0000-4000-8000-000000000000') is None
+    assert r.pressing_id_of(None) is None
+    assert (r.country_code('Norway'), r.country_code('italy'), r.country_code('International')) == ('NO', 'IT', '')
+
+
+def test_every_ma_track_has_its_own_id():
+    album = ma_client.parse_album_page(ALBUM, '789680')
+    node = r.build_release(album, None, '')
+    ids = [t['id'] for m in node['media'] for t in m['tracks']]
+    assert all(ids) and len(set(ids)) == len(ids)

@@ -141,6 +141,22 @@ _MEDIA = {DIGITAL: 'Digital Media', CD: 'CD', VINYL: 'Vinyl', TAPE: 'Cassette'}
 BONUS_SUFFIX = ' (Bonus Track)'
 
 
+def pressing_id_of(album_id):
+    """The MA pressing id in a MetalLib album id, or None for any other id."""
+    s = str(album_id or '')
+    return s[len('metallib-ma-'):] if s.startswith('metallib-ma-') else None
+
+
+def country_code(name):
+    """MA gives the band's country as a name ("Norway"); scripts use the code ("NO")."""
+    from picard.const.countries import RELEASE_COUNTRIES
+    wanted = (name or '').strip().lower()
+    for code, country in RELEASE_COUNTRIES.items():
+        if country.lower() == wanted and len(code) == 2 and code not in ('XW', 'XE', 'XU'):
+            return code
+    return ''
+
+
 def album_id_for(pressing_id):
     """Picard-side id of an MA album. Not UUID-shaped on purpose: Picard auto-moves files only by
     VALID MBIDs, and nothing may ever mistake this for one."""
@@ -175,7 +191,9 @@ def build_release(album, pressing, original_date=''):
                 title += BONUS_SUFFIX
             length = t['length'] * 1000 if t.get('length') else None
             rid = '%s-%s' % (aid, t.get('song_id') or '%d-%d' % (disc, pos))
-            tracks.append({'id': '', 'position': pos, 'number': str(t.get('number') or pos),
+            # A stable id per track: a saved session puts each file back on its track by this id.
+            tracks.append({'id': '%s-t%d-%d' % (aid, disc, pos), 'position': pos,
+                           'number': str(t.get('number') or pos),
                            'title': title, 'length': length, 'artist-credit': credit,
                            'recording': {'id': rid, 'title': title, 'length': length,
                                          'artist-credit': credit, 'relations': []}})

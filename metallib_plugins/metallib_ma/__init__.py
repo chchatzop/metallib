@@ -39,6 +39,8 @@ from .ma_client import (
 )
 from .ma_release import (
     album_id_for,
+    country_code,
+    pressing_id_of,
     auto_pick,
     build_release,
     fits,
@@ -103,6 +105,32 @@ def client():
 # The album
 # ------------------------------------------------------------------------------------------------
 
+MA_INFO_KEY = 'metallib_ma_info'
+
+
+def _band_info(band_id, code=''):
+    try:
+        band = client().band(band_id) if band_id else {}
+    except MAError:
+        band = {}
+    band['country_code'] = code or country_code(band.get('country'))
+    return band
+
+
+def _fetch_pressing(pressing_id):
+    """Thread: everything a MetalArchivesAlbum needs, from one pressing id (for session restore)."""
+    page = client().album(pressing_id)
+    try:
+        versions = client().versions(pressing_id)
+    except MAError:
+        versions = []
+    version = next((v for v in versions if str(v['album_id']) == str(pressing_id)), None)
+    original = min((ma_date(v['date']) for v in versions if ma_date(v['date'])), default='')
+    info = {'album_id': page['album_id'], 'band_id': page['band_id'], 'cover_url': page['cover_url'],
+            'band': _band_info(page['band_id']), 'lineup': page.get('lineup') or []}
+    return {'node': build_release(page, version, original), 'info': info}
+
+
 class MetalArchivesAlbum(Album):
     """An album built from Metal Archives data instead of a MusicBrainz release."""
 
@@ -110,8 +138,17 @@ class MetalArchivesAlbum(Album):
         super().__init__(album_id)
         self._ma_node = release_node
         self.ma_info = ma_info          # {'album_id', 'band_id', 'url', 'cover_url'}
+        if release_node is not None:
+            # Kept inside the node, which a saved session stores: restoring rebuilds this album.
+            release_node[MA_INFO_KEY] = ma_info
 
     def load(self, priority=False, refresh=False):
+        if self._ma_node is None:
+            # Restored from a session without its data: fetch the pressing again (MA cache first).
+            self.loaded = False
+            self.status = AlbumStatus.LOADING
+            thread.run_task(partial(_fetch_pressing, pressing_id_of(self.id)), self._fetched)
+            return
         # Replaces the MusicBrainz request: parse the synthetic node with Picard's own parser.
         self.loaded = False
         self.status = AlbumStatus.LOADING
@@ -134,6 +171,17 @@ class MetalArchivesAlbum(Album):
             import traceback
             self.error_append(traceback.format_exc())
             self._finalize_loading(True)
+
+    def _fetched(self, result=None, error=None):
+        if error or not result:
+            self.error_append('Metal Archives: %s' % (error or 'pressing not found'))
+            self.status = AlbumStatus.ERROR
+            self.update()
+            return
+        self.ma_info = result['info']
+        self._ma_node = result['node']
+        self._ma_node[MA_INFO_KEY] = self.ma_info
+        self.load()
 
     def _finalize_loading_track(self, *args, **kwargs):
         track = super()._finalize_loading_track(*args, **kwargs)
@@ -209,7 +257,7 @@ def _resolve(hit, local, max_fetches=MAX_PRESSING_FETCHES):
         band = client().band(base['band_id'] or hit['band_id'])
     except MAError:
         band = {}
-    band['country_code'] = hit.get('band_country', '')
+    band['country_code'] = hit.get('band_country', '') or country_code(band.get('country'))
     return {'base': base, 'versions': versions, 'checked': checked, 'narrowed_by': why,
             'original_date': original, 'more': len(candidates) > max_fetches, 'band': band}
 
@@ -834,7 +882,101 @@ def _album_artist_from_path(filename, album, artist):
     return _originals['album_artist_from_path'](filename, album, artist)
 
 
+# -- session restore ------------------------------------------------------------------------------
+# A saved session stores each album's id and release data. Picard rebuilds every album as a
+# MusicBrainz album, which for "metallib-ma-..." ids asks MusicBrainz for a release that does not
+# exist. These hooks rebuild them as Metal Archives albums instead.
+
+def restore_album(album_id, node=None):
+    tagger = _api.tagger
+    album = tagger.albums.get(album_id)
+    if isinstance(album, MetalArchivesAlbum):
+        return album
+    info = (node or {}).get(MA_INFO_KEY)
+    album = MetalArchivesAlbum(album_id, node if info else None, info or {})
+    tagger.albums[album_id] = album
+    tagger.album_added.emit(album)
+    album.load()
+    _when_loaded(album, partial(_after_restore, album))
+    return album
+
+
+def _after_restore(album):
+    """The other columns, the pressing lists and the cover come back too (MA pages from the cache)."""
+    info = album.ma_info or {}
+    start_mb_lookup(album, album.metadata['albumartist'], album.metadata['album'])
+    start_discogs(album)
+    pid = pressing_id_of(album.id)
+    thread.run_task(partial(_versions_of, pid), partial(_restored_versions, album, pid))
+    if info.get('cover_url'):
+        thread.run_task(partial(client().fetch_bytes, info['cover_url']), partial(_on_cover, album))
+
+
+def _versions_of(pressing_id):
+    try:
+        return client().versions(pressing_id)
+    except MAError:
+        return []
+
+
+def _restored_versions(album, pressing_id, result=None, error=None):
+    if error or not result or album.id not in _api.tagger.albums:
+        return
+    original = min((ma_date(v['date']) for v in result if ma_date(v['date'])), default='')
+    pressings_panel.record(album, METAL_ARCHIVES, from_ma(result), pressing_id,
+                           {'versions': result, 'original_date': original,
+                            'band': (album.ma_info or {}).get('band') or {}})
+
+
+def _session_strategy(self, album_id, cached_node):
+    if pressing_id_of(album_id) is None:
+        return _originals['session_strategy'](self, album_id, cached_node)
+    # Picard's "no MusicBrainz requests on load" does not apply: an MA album needs no MusicBrainz,
+    # and without saved data its pressing comes from MetalLib's MA cache (the network only if not cached).
+    album = restore_album(album_id, cached_node)
+    self._ui_state.ensure_album_visible(album, self._saved_expanded_albums)
+    return album
+
+
+def _session_build(self, album_id, node):
+    if pressing_id_of(album_id) is None:
+        return _originals['session_build'](self, album_id, node)
+    return restore_album(album_id, node)
+
+
+def _tagger_load_album(album_id, *args, **kwargs):
+    if pressing_id_of(album_id) is not None:
+        return restore_album(album_id)
+    return _originals['load_album'](album_id, *args, **kwargs)
+
+
+def _hook_session(api):
+    from picard.session import session_loader
+    manager = session_loader.AlbumManager
+    _originals['session_strategy'] = manager.load_album_with_strategy
+    _originals['session_build'] = manager._build_from_cache
+    manager.load_album_with_strategy = _session_strategy
+    manager._build_from_cache = _session_build
+    _originals['load_album'] = api.tagger.load_album
+    api.tagger.load_album = _tagger_load_album
+
+
+def _unhook_session():
+    from picard.session import session_loader
+    manager = session_loader.AlbumManager
+    if 'session_strategy' in _originals:
+        manager.load_album_with_strategy = _originals.pop('session_strategy')
+        manager._build_from_cache = _originals.pop('session_build')
+    if 'load_album' in _originals and _api is not None:
+        try:
+            del _api.tagger.load_album          # back to the class method
+        except AttributeError:
+            pass
+        _originals.pop('load_album')
+
+
 def disable() -> None:
+    _unhook_session()
     pressings_panel.uninstall()
     from picard import cluster as picard_cluster
     if 'album_artist_from_path' in _originals:
@@ -854,6 +996,7 @@ def enable(api: PluginApi) -> None:
     api.register_track_metadata_processor(on_track_built)
     api.register_album_metadata_processor(on_mb_album)
     pressings_panel.install(api)
+    _hook_session(api)
     for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),
                       ('_ma_band_country_code', 'Band country code from Metal Archives, e.g. "IT".'),
                       ('_ma_band_status', 'Band status from Metal Archives, e.g. "Active".'),
