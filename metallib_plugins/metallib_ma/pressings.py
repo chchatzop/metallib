@@ -16,6 +16,20 @@ from .ma_release import (
 )
 
 
+NO_LENGTHS = 'no lengths'     # a pressing whose tracklist has no durations: its fit is unknown
+
+
+def judge(secs, file_lengths):
+    """Fit of a pressing's track lengths (seconds) against the files': True / False, or NO_LENGTHS
+    when the pressing lists no durations at all (then it can neither fit nor contradict)."""
+    from .ma_release import fits
+    if len(secs) != len(file_lengths):
+        return False
+    if not any(secs):
+        return NO_LENGTHS
+    return bool(fits(secs, file_lengths))
+
+
 def candidate(source, cid, date='', fmt='', label='', catalog='', country='', desc='', track_count=None,
               fits=None):
     """One pressing as shown in a list. track_count / fits stay None until known."""
@@ -70,6 +84,8 @@ def describe(c, want=0):
         tail = '%d tracks' % c['track_count']
         if unmatched(c, want):
             tail += ', lengths unmatched'
+        elif c['fits'] == NO_LENGTHS:
+            tail += ', no lengths'
         parts.append(tail)
     else:
         parts.append('checking...')
@@ -134,6 +150,8 @@ def better_pick(candidates, chosen_id, want):
     fitting = [c for c in candidates if c['track_count'] == want and c['fits'] is True]
     if len(fitting) == 1:
         return fitting[0]['id']
+    if fitting and shown is not None and shown['fits'] == NO_LENGTHS:
+        return fitting[0]['id']              # a real fit beats a pressing that lists no durations
     if shown is not None and shown['track_count'] is not None and shown['track_count'] != want:
         same = [c for c in candidates if c['track_count'] == want]
         if same:

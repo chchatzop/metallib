@@ -465,3 +465,15 @@ def test_pressings_title_names_the_album_folder():
     assert panel.folder_line(album) == r'C:\m\2023 - Grey Metal (+1 more folder) — 3 tracks'
     album.iterfiles = lambda: iter(())
     assert panel.folder_line(album) == 'No files — "Grey Metal", 3 tracks'
+
+
+def test_pressing_without_durations_is_no_lengths_and_loses_to_a_real_fit():
+    p = _pressings()
+    assert p.judge([0, 0, 0], [200, 300, 100]) == p.NO_LENGTHS
+    assert p.judge([200, 300, 100], [200, 301, 99]) is True
+    assert p.judge([200, 300], [200, 300, 100]) is False
+    us = p.candidate('Discogs', 1, '1994', 'CD', track_count=3, fits=p.NO_LENGTHS)
+    ar = p.candidate('Discogs', 2, '1994', 'CD', track_count=3, fits=True)
+    ar2 = p.candidate('Discogs', 3, '1994', 'CD', track_count=3, fits=True)
+    assert p.describe(us, 3).endswith('3 tracks, no lengths') and not p.unmatched(us, 3)
+    assert p.better_pick([ar, ar2, us], '1', 3) == '2'

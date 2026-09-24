@@ -64,6 +64,7 @@ from .folder_parse import folder_hints
 from . import pressings_panel
 from .pressings import (
     candidate,
+    judge,
     from_discogs,
     from_ma,
     from_mb,
@@ -575,8 +576,7 @@ def _on_mb_release(album, rest, fetched, document=None, http=None, error=None):
 
         def note_fit(document=document, node_lengths=node_lengths):
             files = pressings_panel.local_info(album)['lengths']       # the lists judge vs the files
-            pressings_panel.note(album, MUSICBRAINZ, document['id'], len(node_lengths),
-                                 bool(fits(node_lengths, files)) if len(node_lengths) == len(files) else False)
+            pressings_panel.note(album, MUSICBRAINZ, document['id'], len(node_lengths), judge(node_lengths, files))
         _when_loaded(album, note_fit)
         if ok:
             return _use_mb_release(album, document)
@@ -752,7 +752,8 @@ def _background_discogs(band, title, local):
         cands, _ = narrow_pressings(versions, local['folder'], local['catalog'], local['media'])
         for v in cands[:DG_PRESSING_FETCHES]:
             rel = release if v['album_id'] == release.get('id') else client.release(v['album_id'])
-            if fits([t['length'] for t in flat_tracklist(rel)], local['lengths']):
+            # durations that fit; a release without any durations cannot confirm the pressing
+            if judge([t['length'] for t in flat_tracklist(rel)], local['lengths']) is True:
                 return {'release': rel, 'versions': raw}
     return {'release': release, 'versions': raw}
 
@@ -765,7 +766,7 @@ def _dg_release_candidate(release, lengths):
     secs = [t['length'] for t in flat_tracklist(release)]
     return candidate(DISCOGS, release['id'], release.get('released'), fmt, clean_name(labels[0].get('name', '')),
                      labels[0].get('catno'), release.get('country'), '', len(secs),
-                     bool(fits(secs, lengths)) if len(secs) == len(lengths) else False)
+                     judge(secs, lengths))
 
 
 def start_discogs(album):

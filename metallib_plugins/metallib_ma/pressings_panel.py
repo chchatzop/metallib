@@ -23,6 +23,7 @@ from picard.util import thread
 
 from .pressings import (
     better_pick,
+    judge,
     describe,
     rank,
     short_label,
@@ -155,7 +156,6 @@ def _fill(source, ids, lengths):
         discogs,
     )
     from .discogs_release import flat_tracklist
-    from .ma_release import fits
     out = {}
     for cid in ids:
         try:
@@ -165,7 +165,7 @@ def _fill(source, ids, lengths):
                 secs = [t['length'] for t in flat_tracklist(discogs().release(cid))]
         except Exception:
             continue
-        out[cid] = (len(secs), fits(secs, lengths) if len(secs) == len(lengths) else False)
+        out[cid] = (len(secs), judge(secs, lengths))
     return out
 
 
@@ -270,11 +270,10 @@ def _loaded_mb(album, cid, document=None, http=None, error=None):
 
 
 def _note_lengths(album, source, cid, secs):
-    from .ma_release import fits
     lengths = local_info(album)['lengths']
-    ok = bool(fits(secs, lengths)) if len(secs) == len(lengths) else False
-    note(album, source, cid, len(secs), ok)
-    return ok
+    fit = judge(secs, lengths)
+    note(album, source, cid, len(secs), fit)
+    return fit is True
 
 
 def _apply(album, source, cid, mds, attach, apply_rules):
