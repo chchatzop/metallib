@@ -35,7 +35,8 @@ from .naming import (
 
 
 def clean(parser, text='', mode=''):
-    return _clean(text, keep_trailing=bool(mode))
+    # mode: '' drop trailing dots; 'all' keep them all (artist); anything else keep "..." / "A.I.R."
+    return _clean(text, keep_trailing='all' if mode == 'all' else bool(mode))
 
 
 def first_letter(parser, text=''):

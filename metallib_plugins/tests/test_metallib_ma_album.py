@@ -417,7 +417,8 @@ def test_session_restore_helpers():
     assert r.pressing_id_of('metallib-ma-1405574') == '1405574'
     assert r.pressing_id_of('0b3a2c1d-0000-4000-8000-000000000000') is None
     assert r.pressing_id_of(None) is None
-    assert (r.country_code('Norway'), r.country_code('italy'), r.country_code('International')) == ('NO', 'IT', '')
+    assert (r.country_code('Norway'), r.country_code('italy'), r.country_code('International'),
+            r.country_code('Unknown'), r.country_code('IT'), r.country_code('')) == ('NO', 'IT', 'XW', 'XU', 'IT', '')
 
 
 def test_every_ma_track_has_its_own_id():

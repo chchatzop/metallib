@@ -82,7 +82,8 @@ def _register():
     register_script_function(lambda parser, x='': n.media_code(x), name='media_code')
     register_script_function(lambda parser, x='': n.folder_media(x), name='folder_media')
     register_script_function(lambda parser, c='', m='': n.with_media(c, m), name='with_media')
-    register_script_function(lambda parser, x='', m='': t.clean(x, keep_trailing=bool(m)), name='clean')
+    register_script_function(lambda parser, x='', m='': t.clean(x, keep_trailing='all' if m == 'all' else bool(m)),
+                             name='clean')
 
 
 class LayoutScript(PicardTestCase):
@@ -148,9 +149,11 @@ class LayoutScript(PicardTestCase):
         self.assertEqual(got, 'Anthrax (US)/1988 - State of Euphoria (Jap. Ed.) [P33D-20077 CD] [16-44]/'
                               'Anthrax - State of Euphoria (Jap. Ed.) - 1-01 - Be All, End All')
 
-    def test_country_fallback_skips_worldwide(self):
-        self.assertTrue(self.name(releasecountry='XW', media='CD').startswith('Abbath/'))
-        self.assertTrue(self.name(releasecountry='NO', media='CD').startswith('Abbath (NO)/'))
+    def test_country_is_the_bands_else_musicbrainz_artist_country_else_xu(self):
+        self.assertTrue(self.name(media='CD', _ma_band_country_code='XW').startswith('Abbath (XW)/'))  # International
+        self.assertTrue(self.name(media='CD', _albumartists_countries='NO').startswith('Abbath (NO)/'))   # MB artist
+        self.assertTrue(self.name(media='CD', releasecountry='US').startswith('Abbath (XU)/'))  # never the release's
+        self.assertTrue(self.name(media='CD').startswith('Abbath (XU)/'))                        # unknown
 
     def test_names_are_ascii_like_the_library(self):
         got = self.name(originalyear='2022', media='Digital Media', albumartist='5 Stikhiy', album='MMXXI A.D.',
@@ -163,10 +166,15 @@ class LayoutScript(PicardTestCase):
         self.assertIn('[CD] [Mixed]/', got)
         self.assertTrue(got.endswith(' - 01 - 01-copse-_'))
 
-    def test_artist_keeps_its_dot_in_file_names_not_in_the_folder(self):
+    def test_artist_dot_kept_in_folder_and_files_even_with_unknown_country(self):
+        got = self.name(originalyear='2022', media='CD', albumartist='Deadvoid Inc.', album='Chapters',
+                        title='Grounding the Unreal')
+        self.assertTrue(got.startswith('Deadvoid Inc. (XU)/2022 - Chapters [CD] [16-44]/Deadvoid Inc. - Chapters - 01'), got)
+
+    def test_artist_keeps_its_dot_in_file_names_and_the_folder(self):
         got = self.name(originalyear='1994', media='CD', catalognumber='4509-98058-2', albumartist='A.N.I.M.A.L.',
                         album='Fin de un mundo enfermo', title='Solo por ser indios', _ma_band_country_code='AR')
-        self.assertEqual(got, 'A.N.I.M.A.L (AR)/1994 - Fin de un mundo enfermo [4509-98058-2 CD] [16-44]/'
+        self.assertEqual(got, 'A.N.I.M.A.L. (AR)/1994 - Fin de un mundo enfermo [4509-98058-2 CD] [16-44]/'
                               'A.N.I.M.A.L. - Fin de un mundo enfermo - 01 - Solo por ser indios')
 
 

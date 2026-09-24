@@ -262,7 +262,7 @@ def _resolve(hit, local, max_fetches=MAX_PRESSING_FETCHES):
         band = client().band(base['band_id'] or hit['band_id'])
     except MAError:
         band = {}
-    band['country_code'] = hit.get('band_country', '') or country_code(band.get('country'))
+    band['country_code'] = country_code(hit.get('band_country')) or country_code(band.get('country'))
     return {'base': base, 'versions': versions, 'checked': checked, 'narrowed_by': why,
             'original_date': original, 'more': len(candidates) > max_fetches, 'band': band}
 

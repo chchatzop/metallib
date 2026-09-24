@@ -129,6 +129,8 @@ def transliterate_ascii(s):
 
 
 def clean(s, keep_trailing=False):
+    # keep_trailing='all': every trailing dot stays (an artist -- user: "we keep the dot if the
+    # artist ends with dot"); True: only an ellipsis or initialism (a title) stays.
     """One name part: ASCII, Windows-safe replacements, no control characters, single spaces.
     Trailing dots and spaces are dropped (a folder cannot end in them, and the library drops them
     from artist and album names too) -- except with keep_trailing (a track title, which the
@@ -139,6 +141,8 @@ def clean(s, keep_trailing=False):
     out = ''.join(_FILENAME_CHAR_REPL.get(ch, ch) for ch in out)
     out = _CONTROL_RE.sub(' ', out)
     out = _MULTI_SPACE_RE.sub(' ', out).strip()
+    if keep_trailing == 'all':
+        return out.rstrip(' ')
     if keep_trailing:
         while out and out[-1] in ' .':
             if out[-1] == '.' and (re.search(r'\.{2,}$', out) or _INITIALISM_RE.search(out)):

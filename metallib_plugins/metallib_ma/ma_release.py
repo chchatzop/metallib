@@ -148,9 +148,16 @@ def pressing_id_of(album_id):
 
 
 def country_code(name):
-    """MA gives the band's country as a name ("Norway"); scripts use the code ("NO")."""
+    """A BAND's country as the folder names it: "Norway" / "NO" -> "NO", "International" -> "XW",
+    "Unknown" -> "XU" (user: every artist folder has a code); '' when not recognised."""
     from picard.const.countries import RELEASE_COUNTRIES
     wanted = (name or '').strip().lower()
+    if wanted in ('international', 'worldwide', 'xw'):
+        return 'XW'
+    if wanted in ('unknown', 'n/a', 'xu'):
+        return 'XU'
+    if len(wanted) == 2 and wanted.isalpha():
+        return wanted.upper()
     for code, country in RELEASE_COUNTRIES.items():
         if country.lower() == wanted and len(code) == 2 and code not in ('XW', 'XE', 'XU'):
             return code

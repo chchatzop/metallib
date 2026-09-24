@@ -3,8 +3,8 @@ description: |
   Artist (CC)/YYYY - Album (type) (edition) (RE yyyy) [catalog MEDIA] [quality]/Artist - Album (edition) - NN - Title. Needs the MetalLib Quality and MetalLib Naming plugins.
 author: chchatzop
 license: GNU General Public License version 2 or later
-version: '1.1'
-last_updated: 2026-09-24 14:07:04 UTC
+version: '1.2'
+last_updated: 2026-09-24 16:20:40 UTC
 script_language_version: '1.1'
 script: |
   $noop(
@@ -17,16 +17,17 @@ script: |
   )
 
   $noop(--- values ---)
-  $noop(Names: ASCII - colon becomes space-dash - as the library has them. The artist FOLDER loses
-  trailing dots - A.N.I.M.A.L - while file names keep them - A.N.I.M.A.L. - as do album and title.)
-  $set(_artist,$clean($if2(%albumartist%,%artist%)))
-  $set(_artist_file,$clean($if2(%albumartist%,%artist%),keep))
+  $noop(Names: ASCII - colon becomes space-dash. An artist ending in a dot keeps it - A.N.I.M.A.L. -
+  in files and in the folder - the country code always follows it. Album and title keep an ending
+  ... or initialism.)
+  $set(_artist_file,$clean($if2(%albumartist%,%artist%),all))
   $set(_album,$clean(%album%,keep))
   $set(_title,$clean($if2(%title%,%_filename%),title))
   $noop(Reissue: a pressing at least this many years after the first release gets RE yyyy)
   $set(_re_gap,2)
-  $noop(Country: the band's from Metal Archives - else the release country unless XW or XE)
-  $set(_cc,$if2(%_ma_band_country_code%,$if($not($in(XW XE,%releasecountry%)),%releasecountry%)))
+  $noop(Country: the BAND's - from Metal Archives - else MusicBrainz's artist country - else XU for
+  unknown. International bands are XW. Never the release country - that is where a pressing was made.)
+  $set(_cc,$if2(%_ma_band_country_code%,$getmulti(%_albumartists_countries%,0),XU))
   $noop(Folder year = first release - a later pressing year shows as RE or RM)
   $set(_year,$left($if2(%originalyear%,%originaldate%,%date%),4))
   $set(_pyear,$left(%date%,4))
@@ -53,7 +54,7 @@ script: |
   $set(_q,$album_quality())
 
   $noop(--- folders: artists straight in the destination folder - no letter folder - user ---)
-  %_artist%$if(%_cc%, \(%_cc%\))/
+  %_artist_file% \(%_cc%\)/
   $if(%_year%,%_year% - )%_album%
   $if($in(%_types%,single), \(Single\))
   $if($in(%_types%,ep), \(EP\))
