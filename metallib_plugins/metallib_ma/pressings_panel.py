@@ -53,14 +53,24 @@ def _seconds(track):
     return round(ms / 1000)
 
 
+_REF_ATTR = 'metallib_pressings_ref'
+
+
 def local_info(album):
+    """What the pressings are compared with: the files' lengths (always current), and the album's
+    catalog / media / year AS FIRST SEEN -- picking a pressing changes those in New Value, which
+    must not re-rank the lists (a clicked pressing jumped to 2nd place, user)."""
     import os
-    files = list(album.iterfiles())
-    return {'track_count': len(album.tracks),
-            'lengths': [_seconds(t) for t in album.tracks],
-            'folder': os.path.basename(os.path.dirname(files[0].filename)) if files else '',
-            'catalog': album.metadata['catalognumber'], 'media': album.metadata['media'],
-            'year': (album.metadata['originaldate'] or album.metadata['date'] or '')[:4]}
+    ref = getattr(album, _REF_ATTR, None)
+    if ref is None and album.loaded:
+        files = list(album.iterfiles())
+        ref = {'folder': os.path.basename(os.path.dirname(files[0].filename)) if files else '',
+               'catalog': album.metadata['catalognumber'], 'media': album.metadata['media'],
+               'year': (album.metadata['originaldate'] or album.metadata['date'] or '')[:4]}
+        setattr(album, _REF_ATTR, ref)
+    info = dict(ref or {'folder': '', 'catalog': '', 'media': '', 'year': ''})
+    info.update(track_count=len(album.tracks), lengths=[_seconds(t) for t in album.tracks])
+    return info
 
 
 def record(album, source, items, chosen=None, extra=None, fill=True):
@@ -129,7 +139,8 @@ def _start_fill(album, source):
     st = state(album)[source]
     if st.get('filling'):
         return
-    todo = [c['id'] for c in st['items'] if c['track_count'] is None][:FILL_CAPS[source]]
+    # also pressings whose fit is unknown: every fit is judged against the FILES here
+    todo = [c['id'] for c in st['items'] if c['track_count'] is None or c['fits'] is None][:FILL_CAPS[source]]
     if not todo:
         return
     st['filling'] = True
@@ -282,6 +293,48 @@ def _apply(album, source, cid, mds, attach, apply_rules):
 
 # -- the widget ------------------------------------------------------------------------------------------
 
+class _PathLabel(QtWidgets.QLabel):
+    """One line; a long path is shortened in the MIDDLE so the album folder at its end stays
+    readable; the full text is in the tooltip and can be selected/copied."""
+
+    def __init__(self, text=''):
+        super().__init__()
+        self._full = ''
+        self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.set_full(text)
+
+    def set_full(self, text):
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self):
+        width = max(50, self.width() - 4)
+        self.setText(self.fontMetrics().elidedText(self._full, QtCore.Qt.TextElideMode.ElideMiddle, width))
+
+
+def album_folders(album):
+    """The folder(s) the album's files are in, most files first."""
+    import collections
+    import os
+    count = collections.Counter(os.path.normpath(os.path.dirname(f.filename)) for f in album.iterfiles())
+    return [d for d, _ in count.most_common()]
+
+
+def folder_line(album):
+    folders = album_folders(album)
+    n = len(album.tracks)
+    if not folders:
+        return "No files — \"%s\", %d tracks" % (album.metadata["album"], n)
+    more = ' (+%d more folder%s)' % (len(folders) - 1, 's' if len(folders) > 2 else '') if len(folders) > 1 else ''
+    return "%s%s — %d tracks" % (folders[0], more, n)
+
+
 class PressingsPanel(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -291,8 +344,7 @@ class PressingsPanel(QtWidgets.QWidget):
         layout.setSpacing(2)
         # Title and list headers stay one text line high; all extra height goes to the lists (user).
         fixed = (QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
-        self.title = QtWidgets.QLabel('Pressings — select an album')
-        self.title.setSizePolicy(*fixed)
+        self.title = _PathLabel('Pressings — select an album')
         layout.addWidget(self.title, 0)
         # A splitter, so the borders between the three lists can be dragged (user).
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
@@ -324,12 +376,12 @@ class PressingsPanel(QtWidgets.QWidget):
     def refresh(self):
         album = self.album
         if album is None or album.id not in _api.tagger.albums:
-            self.title.setText('Pressings — select an album')
+            self.title.set_full('Pressings — select an album')
             for lst in self.lists.values():
                 lst.clear()
             return
-        self.title.setText('Pressings of "%s" — %d tracks here; click one to load it into its column'
-                           % (album.metadata['album'], len(album.tracks)))
+        # The folder the selected album's files are in (user); the full path is in the tooltip.
+        self.title.set_full(folder_line(album))
         local = local_info(album)
         red = QtGui.QBrush(QtGui.QColor(200, 0, 0))
         grey = QtGui.QBrush(self.palette().color(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text))

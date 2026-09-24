@@ -346,6 +346,10 @@ def _on_resolved(cluster, local, hit, result=None, error=None):
 def _record_ma(album, result, chosen_id):
     """Every pressing MA lists, for the Pressings panel (the ones already fetched with their fit)."""
     items = from_ma(result['versions'], result['checked'])
+    for c in items:
+        # The lookup judged fit against the tracklist it had (for an MB album: MB's lengths); the
+        # lists judge against the files, so leave it to them (the pages are cached).
+        c['fits'] = None
     extra = {'versions': result['versions'], 'original_date': result['original_date'],
              'band': result.get('band') or {}}
     _when_loaded(album, lambda: pressings_panel.record(album, METAL_ARCHIVES, items, chosen_id, extra))
@@ -568,8 +572,12 @@ def _on_mb_release(album, rest, fetched, document=None, http=None, error=None):
         node_lengths = [round((t.get('length') or 0) / 1000)
                         for m in document.get('media') or [] for t in m.get('tracks') or []]
         ok = bool(fits(node_lengths, album_lengths))
-        _when_loaded(album, partial(pressings_panel.note, album, MUSICBRAINZ, document['id'],
-                                    len(node_lengths), ok))
+
+        def note_fit(document=document, node_lengths=node_lengths):
+            files = pressings_panel.local_info(album)['lengths']       # the lists judge vs the files
+            pressings_panel.note(album, MUSICBRAINZ, document['id'], len(node_lengths),
+                                 bool(fits(node_lengths, files)) if len(node_lengths) == len(files) else False)
+        _when_loaded(album, note_fit)
         if ok:
             return _use_mb_release(album, document)
     if rest:

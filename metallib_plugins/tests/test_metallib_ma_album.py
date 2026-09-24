@@ -321,6 +321,7 @@ class _FakeAlbum:
     def __init__(self, lengths):
         self.tracks = [_FakeTrack(s) for s in lengths]
         self.metadata = {'catalognumber': '', 'media': '', 'originaldate': '', 'date': ''}
+        self.loaded = True
 
     def iterfiles(self):
         return iter(())
@@ -433,3 +434,34 @@ def test_better_pick_prefers_the_album_track_count_over_a_near_miss():
     cd2 = p.candidate('Metal Archives', 3, '1994', 'Cassette', track_count=11, fits=False)
     assert p.better_pick([cd, cd2, vinyl], '1', 11) == '2'       # best same-count one
     assert p.better_pick([cd, cd2, vinyl], '2', 11) is None      # already the right count: stays
+
+
+def test_pressing_ranking_clues_do_not_follow_new_value():
+    import importlib
+    _pressings()
+    panel = importlib.import_module('picard.plugins.metallib_ma_test.pressings_panel')
+    album = _FakeAlbum([200, 300])
+    album.metadata.update(catalognumber='98058-2', date='1994')
+    assert panel.local_info(album)['catalog'] == '98058-2'
+    album.metadata.update(catalognumber='XEC 158', date='2022')     # the user picked another pressing
+    info = panel.local_info(album)
+    assert (info['catalog'], info['year']) == ('98058-2', '1994')     # ranking unchanged
+    album.tracks.append(_FakeTrack(100))
+    assert panel.local_info(album)['track_count'] == 3                # files/lengths stay current
+
+
+def test_pressings_title_names_the_album_folder():
+    import importlib
+    _pressings()
+    panel = importlib.import_module('picard.plugins.metallib_ma_test.pressings_panel')
+
+    class F:
+        def __init__(self, path):
+            self.filename = path
+    album = _FakeAlbum([200, 300, 100])
+    album.metadata['album'] = 'Grey Metal'
+    album.iterfiles = lambda: iter([F(r'C:\m\2023 - Grey Metal\01.flac'), F(r'C:\m\2023 - Grey Metal\02.flac'),
+                                    F(r'C:\m\other\03.flac')])
+    assert panel.folder_line(album) == r'C:\m\2023 - Grey Metal (+1 more folder) — 3 tracks'
+    album.iterfiles = lambda: iter(())
+    assert panel.folder_line(album) == 'No files — "Grey Metal", 3 tracks'
