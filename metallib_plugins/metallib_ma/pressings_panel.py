@@ -287,8 +287,12 @@ class PressingsPanel(QtWidgets.QWidget):
         self.album = None
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+        # Title and list headers stay one text line high; all extra height goes to the lists (user).
+        fixed = (QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
         self.title = QtWidgets.QLabel('Pressings — select an album')
-        layout.addWidget(self.title)
+        self.title.setSizePolicy(*fixed)
+        layout.addWidget(self.title, 0)
         # A splitter, so the borders between the three lists can be dragged (user).
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.splitter.setObjectName('metallib_pressings_lists')
@@ -298,16 +302,19 @@ class PressingsPanel(QtWidgets.QWidget):
             column = QtWidgets.QWidget()
             col = QtWidgets.QVBoxLayout(column)
             col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(1)
             head = QtWidgets.QLabel('<b>%s</b>' % source)
-            col.addWidget(head)
+            head.setSizePolicy(*fixed)
+            col.addWidget(head, 0)
             lst = QtWidgets.QListWidget()
             lst.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             lst.itemClicked.connect(partial(self._clicked, source))
-            col.addWidget(lst)
+            lst.setMinimumHeight(40)
+            col.addWidget(lst, 1)
             self.lists[source] = lst
             column.setMinimumWidth(60)
             self.splitter.addWidget(column)
-        layout.addWidget(self.splitter)
+        layout.addWidget(self.splitter, 1)
 
     def show_album(self, album):
         self.album = album
