@@ -38,8 +38,11 @@ POSITION_TAGS = {'tracknumber', 'totaltracks', 'discnumber', 'totaldiscs'}
 # What belongs to ONE physical release rather than to the album (user: "Album info only (no
 # pressing)" in a source's list drops these from that source's column).
 PRESSING_TAGS = {'date', 'releasedate', 'label', 'catalognumber', 'barcode', 'asin', 'media',
-                 'releasecountry', 'releasestatus', 'musicbrainz_albumid', 'musicbrainz_releasetrackid',
-                 'musicbrainz_discid', '~releasecomment', '~releasepackaging'}
+                 'releasecountry', 'releasestatus', 'musicbrainz_albumid', 'musicbrainz_discid',
+                 # Picard's name for the RELEASE-track id is musicbrainz_trackid (written to FLAC as
+                 # MUSICBRAINZ_RELEASETRACKID); the recording id is musicbrainz_recordingid (album-level).
+                 'musicbrainz_trackid', 'musicbrainz_releasetrackid',
+                 '~releasecomment', '~releasepackaging'}
 
 DEFAULT_ORDER = (MA, MB, DG)    # everything else: MA if it has a value, else MB, else Discogs
 

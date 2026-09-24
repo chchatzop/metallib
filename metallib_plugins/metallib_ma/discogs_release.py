@@ -12,6 +12,7 @@ from .ma_release import (
     TAPE,
     VINYL,
     format_kind,
+    release_country_code,
 )
 
 
@@ -182,8 +183,9 @@ def build_node(release):
     if label:
         node['label-info'] = [{'label': {'name': clean_name(label.get('name'))},
                                'catalog-number': '' if (label.get('catno') or '').lower() == 'none' else label.get('catno', '')}]
-    if release.get('country'):
-        node['country'] = release['country']
+    code = release_country_code(release.get('country'))
+    if code:
+        node['country'] = code             # Discogs gives "Argentina"; the tag wants "AR" (user review)
     # "Limited Edition, Deluxe Edition, Digipak" -> ~releasecomment / ~releasepackaging, which the
     # naming script turns into (Lim. Ed.) (Del. Ed.) (Digipak), as for MusicBrainz releases.
     notes = []

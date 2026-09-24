@@ -520,3 +520,19 @@ def test_no_source_value_keeps_the_files_own_and_date_falls_back_to_the_first_re
     assert (tagged.metadata['catalognumber'], tagged.metadata['date']) == ('SCENE-1', '1994-05-01')  # file's own
     assert 'releasecountry' not in tagged.metadata and 'catalognumber' not in bare.metadata          # none: none
     assert bare.metadata['date'] == '1994'                                   # no date in the file: first release
+
+
+def test_release_country_codes_from_discogs_names():
+    assert [r.release_country_code(x) for x in ('Argentina', 'Europe', 'Worldwide', 'UK', 'US', 'USA & Europe', '')] == \
+        ['AR', 'XE', 'XW', 'GB', 'US', '', '']
+
+
+def test_lineup_names_lose_notes_and_backing_vocals_use_the_mb_word():
+    lineup = [{'name': 'Martín Carrizo (R.I.P. 2022)', 'roles': 'Drums, Backing vocals', 'section': 'members'},
+              {'name': 'Andrés Giménez', 'roles': 'Vocals, Guitars', 'section': 'members'},
+              {'name': 'Marcelo Corvalán', 'roles': 'Bass, Vocals (backing)', 'section': 'members'}]
+    tags = r.lineup_tags(lineup, 1)
+    assert tags['performer:drums'] == ['Martín Carrizo']
+    assert tags['performer:background vocals'] == ['Martín Carrizo', 'Marcelo Corvalán']
+    assert 'performer:backing vocals' not in tags
+    assert r.person_name('X (RIP 2019)') == 'X' and r.person_name('Band (live)') == 'Band (live)'

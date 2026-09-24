@@ -698,8 +698,17 @@ def apply_rules(album):
         if base_mode is not None:
             # the album's own values that the switched-off source put into New Value
             tags |= {t for t in track.metadata if not t.startswith('~')}
+        # Performers from ONE source per track (MA first): MB and MA word instruments differently
+        # ("electric guitar" / "guitar"), so mixing them doubled every credit (user review).
+        perf = next((n for n in (METAL_ARCHIVES, MUSICBRAINZ, DISCOGS)
+                     if n in sources and any(t.startswith('performer:') for t in sources[n])), None)
         for tag in sorted(tags):
             if tag in user or tag in POSITION_TAGS:
+                continue
+            if tag.startswith('performer:') and perf and tag not in sources[perf]:
+                for md in [track.metadata] + [f.metadata for f in track.files]:
+                    if tag in md:
+                        del md[tag]
                 continue
             choice = choose(tag, {name: list(md.getall(tag)) for name, md in sources.items()})
             if choice is None:

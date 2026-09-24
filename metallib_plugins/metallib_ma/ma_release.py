@@ -157,6 +157,28 @@ def country_code(name):
     return ''
 
 
+# Discogs / MA spellings that are not a country's name in Picard's list.
+_COUNTRY_ALIASES = {'europe': 'XE', 'worldwide': 'XW', 'uk': 'GB', 'usa': 'US', 'us': 'US',
+                    'russia': 'RU', 'south korea': 'KR', 'czech republic': 'CZ', 'iran': 'IR'}
+
+
+def release_country_code(name):
+    """A release country as MusicBrainz writes it: "Argentina" -> "AR", "Europe" -> "XE",
+    "Worldwide" -> "XW"; '' when unknown or not one country ("USA & Europe")."""
+    wanted = (name or '').strip().lower()
+    if not wanted:
+        return ''
+    if wanted in _COUNTRY_ALIASES:
+        return _COUNTRY_ALIASES[wanted]
+    if len(wanted) == 2 and wanted.isalpha():
+        return wanted.upper()
+    from picard.const.countries import RELEASE_COUNTRIES
+    for code, country in RELEASE_COUNTRIES.items():
+        if country.lower() == wanted:
+            return code
+    return ''
+
+
 def album_id_for(pressing_id):
     """Picard-side id of an MA album. Not UUID-shaped on purpose: Picard auto-moves files only by
     VALID MBIDs, and nothing may ever mistake this for one."""
@@ -434,6 +456,16 @@ def is_instrument(role):
     return any(w in role for w in _INSTRUMENT_WORDS)
 
 
+# MA writes notes into a member's name: "Martín Carrizo (R.I.P. 2022)". Not part of the name.
+_NAME_NOTE_RE = re.compile(r'\s*\((?:R\.?\s*I\.?\s*P\.?|RIP|†|deceased|died)\b[^)]*\)', re.I)
+# MA's wording -> the one MusicBrainz/Picard write, so one album does not mix both.
+_INSTRUMENT_ALIASES = {'backing vocals': 'background vocals', 'backing vocal': 'background vocals'}
+
+
+def person_name(name):
+    return _NAME_NOTE_RE.sub('', name or '').strip()
+
+
 def lineup_tags(lineup, track_position):
     """Credit tags for the track at absolute position `track_position` (1-based, across discs --
     MA's "(tracks 1-8, 10)" counts that way): {tag: [names]}."""
@@ -457,10 +489,13 @@ def lineup_tags(lineup, track_position):
                 instrument = ' '.join(_SINGULAR.get(w, w) for w in key.split())
                 if extra:
                     instrument = '%s %s' % (extra, instrument)
+                # after "Vocals (backing)" became "backing vocals"
+                instrument = _INSTRUMENT_ALIASES.get(instrument, instrument)
                 if person['section'] == 'guest':
                     instrument = 'guest ' + instrument
                 tag = 'performer:' + instrument
             names = tags.setdefault(tag, [])
-            if person['name'] not in names:
-                names.append(person['name'])
+            name = person_name(person['name'])
+            if name and name not in names:
+                names.append(name)
     return tags

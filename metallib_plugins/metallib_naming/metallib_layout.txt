@@ -1,6 +1,6 @@
 $noop(
 MetalLib library layout -
-  Letter / Artist [CC] / YYYY - Album [type] [edition] [RE yyyy] [catalog MEDIA] [quality] /
+  Artist [CC] / YYYY - Album [type] [edition] [RE yyyy] [catalog MEDIA] [quality] /
   Artist - Album [edition] [RE yyyy] - NN - Title
   where round brackets are written for type / edition / RE / CC.
 Line breaks and tabs are ignored - spaces are not.
@@ -8,9 +8,10 @@ Needs the MetalLib Quality and MetalLib Naming plugins.
 )
 
 $noop(--- values ---)
-$noop(Names: ASCII - colon becomes space-dash - as the library has them. The artist loses trailing
-dots - D.R.I - an album or title keeps an ending ... or initialism - T.O.M.B.)
+$noop(Names: ASCII - colon becomes space-dash - as the library has them. The artist FOLDER loses
+trailing dots - A.N.I.M.A.L - while file names keep them - A.N.I.M.A.L. - as do album and title.)
 $set(_artist,$clean($if2(%albumartist%,%artist%)))
+$set(_artist_file,$clean($if2(%albumartist%,%artist%),keep))
 $set(_album,$clean(%album%,keep))
 $set(_title,$clean($if2(%title%,%_filename%),title))
 $noop(Reissue: a pressing at least this many years after the first release gets RE yyyy)
@@ -42,8 +43,7 @@ $set(_src,$if2($if($or($eq(%_rip%,WEB),$eq(%catnum%,WEB)),WEB),$media_code($albu
 $set(_bracket,$if($eq(%_src%,WEB),WEB,$with_media($clean($getmulti(%catalognumber%,0)),%_src%)))
 $set(_q,$album_quality())
 
-$noop(--- folders ---)
-$first_letter(%_artist%)/
+$noop(--- folders: artists straight in the destination folder - no letter folder - user ---)
 %_artist%$if(%_cc%, \(%_cc%\))/
 $if(%_year%,%_year% - )%_album%
 $if($in(%_types%,single), \(Single\))
@@ -67,7 +67,7 @@ $if(%_q%, [%_q%])
 /
 
 $noop(--- file ---)
-%_artist% - %_album%
+%_artist_file% - %_album%
 $if($in(%_types%,single), \(Single\))
 $if(%_dlx%, \(Del. Ed.\))
 $if(%_jap%, \(Jap. Ed.\))

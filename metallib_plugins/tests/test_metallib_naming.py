@@ -111,14 +111,14 @@ class LayoutScript(PicardTestCase):
         got = self.name(originalyear='2022', originaldate='2022-03-25', date='2022-03-25', media='CD',
                         catalognumber='SOM 650B', _ma_band_country_code='NO',
                         _releasecomment='Limited edition, Digipak', _releasepackaging='Digipak')
-        self.assertEqual(got, 'A/Abbath (NO)/2022 - Dread Reaver (Digipak) (Lim. Ed.) [SOM 650B CD] [16-44]/'
+        self.assertEqual(got, 'Abbath (NO)/2022 - Dread Reaver (Digipak) (Lim. Ed.) [SOM 650B CD] [16-44]/'
                               'Abbath - Dread Reaver (Lim. Ed.) - 01 - Acid Haze')
 
     def test_web_release_has_no_catalog(self):
         got = self.name(originalyear='2023', date='2023-06-09', media='Digital Media', catalognumber='X-1',
                         _ma_band_country_code='SE', releasetype='ep', quality='24-44',
                         albumartist='Alltid Allena', album='Grey Metal', title='Change')
-        self.assertEqual(got, 'A/Alltid Allena (SE)/2023 - Grey Metal (EP) [WEB] [24-44]/'
+        self.assertEqual(got, 'Alltid Allena (SE)/2023 - Grey Metal (EP) [WEB] [24-44]/'
                               'Alltid Allena - Grey Metal - 01 - Change')
 
     def test_web_rip_folder_wins_over_cd_tags(self):
@@ -130,7 +130,7 @@ class LayoutScript(PicardTestCase):
         got = self.name(originalyear='1995', date='2008', media='Digital Media', _ma_band_country_code='NO',
                         albumartist='Carpathian Forest', album='Through Chasm, Caves and Titan Woods',
                         releasetype='ep', title='Carpathian Forest')
-        self.assertEqual(got, 'C/Carpathian Forest (NO)/1995 - Through Chasm, Caves and Titan Woods (EP) '
+        self.assertEqual(got, 'Carpathian Forest (NO)/1995 - Through Chasm, Caves and Titan Woods (EP) '
                               '(RE 2008) [WEB] [16-44]/Carpathian Forest - Through Chasm, Caves and Titan Woods '
                               '(RE 2008) - 01 - Carpathian Forest')
         self.assertNotIn('(RE', self.name(originalyear='1994', date='1995', media='CD'))
@@ -145,20 +145,47 @@ class LayoutScript(PicardTestCase):
         got = self.name(originalyear='1988', date='1988', media='CD', releasecountry='JP', catalognumber='P33D-20077',
                         _ma_band_country_code='US', albumartist='Anthrax', album='State of Euphoria',
                         title='Be All, End All', totaldiscs='2', discnumber='1')
-        self.assertEqual(got, 'A/Anthrax (US)/1988 - State of Euphoria (Jap. Ed.) [P33D-20077 CD] [16-44]/'
+        self.assertEqual(got, 'Anthrax (US)/1988 - State of Euphoria (Jap. Ed.) [P33D-20077 CD] [16-44]/'
                               'Anthrax - State of Euphoria (Jap. Ed.) - 1-01 - Be All, End All')
 
     def test_country_fallback_skips_worldwide(self):
-        self.assertIn('/Abbath/', self.name(releasecountry='XW', media='CD'))
-        self.assertIn('/Abbath (NO)/', self.name(releasecountry='NO', media='CD'))
+        self.assertTrue(self.name(releasecountry='XW', media='CD').startswith('Abbath/'))
+        self.assertTrue(self.name(releasecountry='NO', media='CD').startswith('Abbath (NO)/'))
 
     def test_names_are_ascii_like_the_library(self):
         got = self.name(originalyear='2022', media='Digital Media', albumartist='5 Stikhiy', album='MMXXI A.D.',
                         title='Пробуждение', _ma_band_country_code='RU')
-        self.assertEqual(got, '#/5 Stikhiy (RU)/2022 - MMXXI A.D. [WEB] [16-44]/'
+        self.assertEqual(got, '5 Stikhiy (RU)/2022 - MMXXI A.D. [WEB] [16-44]/'
                               '5 Stikhiy - MMXXI A.D. - 01 - Probuzhdenie')
 
     def test_mixed_quality_and_untitled_track(self):
         got = self.name(quality='Mixed', originalyear='2001', media='CD', title='', _filename='01-copse-_')
         self.assertIn('[CD] [Mixed]/', got)
         self.assertTrue(got.endswith(' - 01 - 01-copse-_'))
+
+    def test_artist_keeps_its_dot_in_file_names_not_in_the_folder(self):
+        got = self.name(originalyear='1994', media='CD', catalognumber='4509-98058-2', albumartist='A.N.I.M.A.L.',
+                        album='Fin de un mundo enfermo', title='Solo por ser indios', _ma_band_country_code='AR')
+        self.assertEqual(got, 'A.N.I.M.A.L (AR)/1994 - Fin de un mundo enfermo [4509-98058-2 CD] [16-44]/'
+                              'A.N.I.M.A.L. - Fin de un mundo enfermo - 01 - Solo por ser indios')
+
+
+class CatnumTag(PicardTestCase):
+    def test_catnum_is_the_folder_bracket(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('picard.plugins.metallib_naming_test', PLUGIN_DIR / '__init__.py',
+                                                      submodule_search_locations=[str(PLUGIN_DIR)])
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+
+        class F:
+            def __init__(self, folder, **tags):
+                self.filename = folder + r'\01.flac'
+                self.parent_item = None
+                self.metadata = Metadata(**tags)
+        self.assertEqual(mod.catnum_for(F(r'C:\in\A.N.I.M.A.L.-Fin-ES-CD-FLAC-1994-DeVOiD', media='CD',
+                                          catalognumber='4509-98058-2')), '4509-98058-2 CD')
+        self.assertEqual(mod.catnum_for(F(r'C:\in\Band - Album', media='CD')), 'CD')           # no catalog
+        self.assertEqual(mod.catnum_for(F(r'C:\in\Band-Album-WEB-2023-GRP', media='CD', catalognumber='X1')), 'WEB')
+        self.assertEqual(mod.catnum_for(F(r'C:\in\Band - Album')), '')                         # nothing known

@@ -11,9 +11,13 @@
 #                             file's own %media% is only its disc's, which would split a CD+DVD set
 #   $media_code(text)         source tag: Digital Media -> WEB, CD/SHM-CD -> CD, Vinyl -> LP, Cassette -> Tape
 #   $folder_media(path)       what the folder name says it was ripped from: WEB / CD / LP / Tape
+#   CATNUM tag                written at save: "catalog MEDIA" / "MEDIA" / "WEB" -- the folder's
+#                             [ ] bracket (the user's own tag from their earlier tool)
 #   $with_media(cat,code)     "SOM 650B" + CD -> "SOM 650B CD" (kept as is when it already ends in it)
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
+
+import os
 
 from picard.plugin3.api import (
     PluginApi,
@@ -62,7 +66,33 @@ def album_media(parser):
     return parser.context['media']
 
 
+def catnum_for(file):
+    """The folder bracket as a tag, the same rule as the naming script: a WEB rip (folder name, or
+    an earlier catnum WEB) -> WEB; else the album's media with the first catalog number."""
+    md = file.metadata
+    rip = _folder_media(md['~dirname'] or os.path.dirname(file.filename))
+    if rip == 'WEB' or md['catnum'] == 'WEB':
+        return 'WEB'
+    code = _media_code(_file_album_media(file)) or rip
+    catalog = (md.getall('catalognumber') or [''])[0]
+    return _with_media(catalog, code) if catalog or code else ''
+
+
+def _file_album_media(file):
+    track = file.parent_item
+    if isinstance(track, Track) and track.album is not None:
+        return _album_media([(t.files[0].metadata if t.files else t.metadata)['media'] for t in track.album.tracks])
+    return file.metadata['media']
+
+
+def on_file_saving(api, file):
+    value = catnum_for(file)
+    if value:                                   # nothing known: keep what the file has
+        file.metadata['catnum'] = value
+
+
 def enable(api: PluginApi) -> None:
+    api.register_file_pre_save_processor(on_file_saving)
     for func, name, doc in (
         (clean, 'clean',
          "`$clean(text[,title])`\n\nA name part as the MetalLib library writes it: plain ASCII (Cyrillic and "
