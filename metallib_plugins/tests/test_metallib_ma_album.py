@@ -487,3 +487,36 @@ def test_pressing_line_shows_the_description():
     v = p.candidate('Metal Archives', 2, '2022', '12" vinyl', 'X El Cambio Records', 'XEC 158',
                     desc='Transparent vinyl', track_count=10)
     assert '12" vinyl · Transparent vinyl · X El Cambio' in p.describe(v, 11)
+
+
+class _KeepTrack:
+    def __init__(self, files, **tags):
+        from picard.metadata import Metadata
+        self.metadata = Metadata(**tags)
+        self.files = files
+
+
+class _KeepFile:
+    def __init__(self, **orig):
+        from picard.metadata import Metadata
+        self.orig_metadata = Metadata(**orig)
+        self.metadata = Metadata(**orig)
+
+
+def test_no_source_value_keeps_the_files_own_and_date_falls_back_to_the_first_release():
+    import importlib
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    tagged = _KeepFile(catalognumber='SCENE-1', date='1994-05-01')
+    bare = _KeepFile()
+    for f in (tagged, bare):
+        f.metadata['catalognumber'] = 'FROM-MB'            # what the switched-off source had put there
+        f.metadata['releasecountry'] = 'US'
+        f.metadata['date'] = '1994-01-01'
+    track = _KeepTrack([tagged, bare], originaldate='1994', catalognumber='FROM-MB', date='1994-01-01')
+    for tag in ('catalognumber', 'releasecountry', 'date'):
+        m._keep_file_value(track, tag)
+    assert (tagged.metadata['catalognumber'], tagged.metadata['date']) == ('SCENE-1', '1994-05-01')  # file's own
+    assert 'releasecountry' not in tagged.metadata and 'catalognumber' not in bare.metadata          # none: none
+    assert bare.metadata['date'] == '1994'                                   # no date in the file: first release

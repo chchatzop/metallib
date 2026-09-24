@@ -35,6 +35,12 @@ ORIGINAL_TAGS = {'originaldate', 'originalyear'}
 # column: a 10-track vinyl in the MA column renumbered an 11-track CD (06 twice, up to 10).
 POSITION_TAGS = {'tracknumber', 'totaltracks', 'discnumber', 'totaldiscs'}
 
+# What belongs to ONE physical release rather than to the album (user: "Album info only (no
+# pressing)" in a source's list drops these from that source's column).
+PRESSING_TAGS = {'date', 'releasedate', 'label', 'catalognumber', 'barcode', 'asin', 'media',
+                 'releasecountry', 'releasestatus', 'musicbrainz_albumid', 'musicbrainz_releasetrackid',
+                 'musicbrainz_discid', '~releasecomment', '~releasepackaging'}
+
 DEFAULT_ORDER = (MA, MB, DG)    # everything else: MA if it has a value, else MB, else Discogs
 
 

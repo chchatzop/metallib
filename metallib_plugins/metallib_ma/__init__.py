@@ -69,7 +69,11 @@ from .pressings import (
     from_ma,
     from_mb,
 )
-from .rules import choose
+from .rules import (
+    POSITION_TAGS,
+    PRESSING_TAGS,
+    choose,
+)
 from .source_columns import (
     METAL_ARCHIVES,
     MUSICBRAINZ,
@@ -506,6 +510,8 @@ def _on_background_ma(album, result=None, error=None):
     mds = track_metadata(node, fix=partial(_ma_fix, page['album_id'], band, page.get('lineup') or []))
 
     def apply():
+        if pressings_panel.blocked(album, METAL_ARCHIVES):
+            return
         n = attach(album, METAL_ARCHIVES, mds)
         apply_rules(album)
         _status('Metal Archives: "%s" (%s) paired with %d of %d tracks'
@@ -605,6 +611,8 @@ def _use_mb_release(album, node, fitted=True):
                 del md[tag]
 
     def apply():
+        if pressings_panel.blocked(album, MUSICBRAINZ):
+            return
         n = attach(album, MUSICBRAINZ, mds)
         apply_rules(album)
         _status('MusicBrainz: "%s" paired with %d of %d tracks%s'
@@ -645,26 +653,61 @@ def _hidden_facts(sources, user, rule_sources):
     return out
 
 
+def _base_source(album):
+    """The source the album itself was loaded from: New Value starts from its values."""
+    return METAL_ARCHIVES if isinstance(album, MetalArchivesAlbum) else MUSICBRAINZ
+
+
+def _keep_file_value(track, tag):
+    """No source may give `tag`: New Value keeps what each file already has (user: "keep current
+    info"); a file without it gets none -- except the date, which then becomes the first-release
+    date (user)."""
+    first = track.metadata['originaldate'] or track.metadata['originalyear']
+    for md, orig in [(f.metadata, f.orig_metadata) for f in track.files] or [(track.metadata, None)]:
+        if orig is not None and tag in orig and any(orig.getall(tag)):
+            md[tag] = list(orig.getall(tag))
+        elif tag == 'date' and first:
+            md[tag] = first
+        elif tag in md:
+            del md[tag]
+    if track.files:
+        if tag in track.files[0].metadata:
+            track.metadata[tag] = list(track.files[0].metadata.getall(tag))
+        elif tag in track.metadata:
+            del track.metadata[tag]
+
+
 def apply_rules(album):
     """Set New Value from the per-field rule (rules.py) on every track that has both sources.
-    Never touches a tag the user already picked a source for, nor tags no source has.
+    Never touches a tag the user already picked a source for, nor tags no source has -- unless the
+    album's own source is set to "Album info only" / "Don't use this source" in its pressing list:
+    then its values that no other source replaces fall back to the files' own (_keep_file_value).
     Records the rule's choice in track.rule_sources[tag] (the user's picks live in value_sources)."""
     changed = 0
     album_values = {}
+    base_mode = pressings_panel.mode(album, _base_source(album))
     for track in album.tracks:
         sources = getattr(track, 'source_metadata', None) or {}
-        if len(sources) < 2:
+        if len(sources) < 2 and base_mode is None:
             continue
         user = dict(getattr(track, 'value_sources', None) or {})
         for f in track.files:
             user.update(getattr(f, 'value_sources', None) or {})
         rule_sources = getattr(track, 'rule_sources', None) or {}
         tags = {t for md in sources.values() for t in md if not t.startswith('~')}
+        if base_mode is not None:
+            # the album's own values that the switched-off source put into New Value
+            tags |= {t for t in track.metadata if not t.startswith('~')}
         for tag in sorted(tags):
-            if tag in user:
+            if tag in user or tag in POSITION_TAGS:
                 continue
             choice = choose(tag, {name: list(md.getall(tag)) for name, md in sources.items()})
             if choice is None:
+                if base_mode == pressings_panel.OFF or (base_mode == pressings_panel.ALBUM_ONLY
+                                                        and tag in PRESSING_TAGS):
+                    _keep_file_value(track, tag)
+                    rule_sources.pop(tag, None)
+                    changed += 1
                 continue
             name, values = choice
             rule_sources[tag] = name
@@ -802,11 +845,14 @@ def _on_discogs(album, result=None, error=None):
     versions, result = result['versions'], result['release']
     built = build_node(result)
     mds = track_metadata(built['node'], fix=partial(_dg_fix, built))
+    lengths = pressings_panel.local_info(album)['lengths']
+    items = from_discogs(versions) + [_dg_release_candidate(result, lengths)]
+    if pressings_panel.blocked(album, DISCOGS):
+        pressings_panel.record(album, DISCOGS, items)       # the list, but the user's row stays
+        return
     n = attach(album, DISCOGS, mds)
     apply_rules(album)
-    lengths = pressings_panel.local_info(album)['lengths']
-    pressings_panel.record(album, DISCOGS, from_discogs(versions) + [_dg_release_candidate(result, lengths)],
-                           result['id'])
+    pressings_panel.record(album, DISCOGS, items, result['id'])
     _status('Discogs: "%s" (%s) paired with %d of %d tracks'
             % (result.get('title'), result.get('id'), n, len(album.tracks)))
     _refresh_panel()

@@ -32,6 +32,11 @@ from .pressings import (
 
 
 SOURCES = ('MusicBrainz', 'Metal Archives', 'Discogs')
+# Two rows above every source's pressings (user). Exactly one row per list is active: one of these
+# or one pressing. Not saved, like the pressing choice.
+ALBUM_ONLY = '__album_only__'     # the source gives album facts, nothing pressing-specific
+OFF = '__off__'                   # the source is not used at all
+SPECIAL_ROWS = ((ALBUM_ONLY, 'Album info only (no pressing)'), (OFF, "Don't use this source"))
 FILL_CAPS = {'Metal Archives': 40, 'Discogs': 25}     # pressing pages checked in the background
 _ATTR = 'metallib_pressings'
 _panel = None
@@ -84,7 +89,7 @@ def record(album, source, items, chosen=None, extra=None, fill=True):
             c = {k: (v if v not in (None, '') else old.get(k)) for k, v in c.items()}
         known[c['id']] = c
     st['items'] = list(known.values())
-    if chosen is not None:
+    if chosen is not None and not st.get('user_picked'):
         st['chosen'] = str(chosen)
     _label_column(album, source)
     if extra:
@@ -106,6 +111,49 @@ def note(album, source, cid, track_count=None, fits=None):
             if fits is not None:
                 c['fits'] = fits
     refresh(album)
+
+
+def mode(album, source):
+    """ALBUM_ONLY / OFF when the user picked one of the special rows for this source, else None."""
+    chosen = state(album)[source]['chosen']
+    return chosen if chosen in (ALBUM_ONLY, OFF) else None
+
+
+def blocked(album, source):
+    """A background lookup must not put a pressing into a column the user set to a special row."""
+    return mode(album, source) is not None
+
+
+def set_mode(album, source, which):
+    """The user picked "Album info only" / "Don't use this source": change that source's column
+    on every track, then New Value by the rules (which fall back to the files' own values)."""
+    from picard.metadata import Metadata
+
+    from . import (
+        _refresh_panel,
+        apply_rules,
+    )
+    from .rules import PRESSING_TAGS
+    st = state(album)[source]
+    st['user_picked'] = True
+    st['chosen'] = which
+    for track in album.tracks:
+        sources = getattr(track, 'source_metadata', None)
+        if not sources or source not in sources:
+            continue
+        if which == OFF:
+            del sources[source]
+        else:
+            md = Metadata()
+            md.copy(sources[source])
+            for tag in PRESSING_TAGS:
+                if tag in md:
+                    del md[tag]
+            md['~source_label'] = 'album info only'
+            sources[source] = md
+    apply_rules(album)
+    refresh(album)
+    _refresh_panel()
 
 
 def set_chosen(album, source, cid):
@@ -388,6 +436,23 @@ class PressingsPanel(QtWidgets.QWidget):
             st = state(album)[source]
             lst.clear()
             ranked = rank(st['items'], local)
+            for key, label in SPECIAL_ROWS:
+                item = QtWidgets.QListWidgetItem(label)
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, key)
+                font = item.font()
+                font.setItalic(True)
+                font.setBold(st['chosen'] == key)
+                item.setFont(font)
+                item.setToolTip('Album facts only: no label, catalog, barcode, country, media, date or '
+                                'release ids from %s' % source if key == ALBUM_ONLY
+                                else '%s is not used for New Value at all' % source)
+                if st['chosen'] == key:
+                    item.setBackground(self.palette().highlight())
+                    item.setForeground(self.palette().highlightedText())
+                lst.addItem(item)
+            line = QtWidgets.QListWidgetItem('─' * 40)
+            line.setFlags(QtCore.Qt.ItemFlag.NoItemFlags)       # a divider, not selectable
+            lst.addItem(line)
             if not ranked:
                 lst.addItem('(none found yet)')
                 continue
@@ -417,9 +482,13 @@ class PressingsPanel(QtWidgets.QWidget):
 
     def _clicked(self, source, item):
         cid = item.data(QtCore.Qt.ItemDataRole.UserRole)
-        if cid and self.album is not None and cid != state(self.album)[source]['chosen']:
-            state(self.album)[source]['user_picked'] = True
-            load(self.album, source, cid)
+        if not cid or self.album is None or cid == state(self.album)[source]['chosen']:
+            return
+        if cid in (ALBUM_ONLY, OFF):
+            set_mode(self.album, source, cid)
+            return
+        state(self.album)[source]['user_picked'] = True
+        load(self.album, source, cid)
 
 
 def refresh(album):
