@@ -78,7 +78,9 @@ def unmatched(c, want):
 def describe(c, want=0):
     """One-line text: "2026 · CD · Nuclear Blast · NB 123-2 · Europe · 11 tracks". Only a problem is
     spelled out ("lengths unmatched"); fitting lengths say nothing (user: saves space)."""
-    parts = [p for p in (c['date'][:10] if c['date'] else '', c['format'], c['label'], c['catalog'],
+    # the description ("Repress", "Reissue", "Transparent vinyl") right after the format (user)
+    desc = c['desc'] if c['desc'] and c['desc'].lower() not in c['format'].lower() else ''
+    parts = [p for p in (c['date'][:10] if c['date'] else '', c['format'], desc, c['label'], c['catalog'],
                          c['country']) if p]
     if c['track_count'] is not None:
         tail = '%d tracks' % c['track_count']

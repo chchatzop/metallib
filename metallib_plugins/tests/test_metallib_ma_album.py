@@ -477,3 +477,13 @@ def test_pressing_without_durations_is_no_lengths_and_loses_to_a_real_fit():
     ar2 = p.candidate('Discogs', 3, '1994', 'CD', track_count=3, fits=True)
     assert p.describe(us, 3).endswith('3 tracks, no lengths') and not p.unmatched(us, 3)
     assert p.better_pick([ar, ar2, us], '1', 3) == '2'
+
+
+def test_pressing_line_shows_the_description():
+    p = _pressings()
+    c = p.candidate('Metal Archives', 1, '1994', 'CD', 'Tommy Gun Records', '4509-98058-2', desc='Repress',
+                    track_count=11, fits=True)
+    assert p.describe(c, 11) == '1994 · CD · Repress · Tommy Gun Records · 4509-98058-2 · 11 tracks'
+    v = p.candidate('Metal Archives', 2, '2022', '12" vinyl', 'X El Cambio Records', 'XEC 158',
+                    desc='Transparent vinyl', track_count=10)
+    assert '12" vinyl · Transparent vinyl · X El Cambio' in p.describe(v, 11)
