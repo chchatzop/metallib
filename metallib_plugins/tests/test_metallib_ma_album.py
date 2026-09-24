@@ -384,7 +384,12 @@ def test_better_pick_only_when_exactly_one_fits():
     shown = p.candidate('Discogs', 1, track_count=11, fits=False)
     fit = p.candidate('Discogs', 2, track_count=12, fits=True)
     assert p.better_pick([shown, fit], '1', 12) == '2'
-    assert p.better_pick([shown, fit, p.candidate('Discogs', 3, track_count=12, fits=True)], '1', 12) is None
+    two = [fit, p.candidate('Discogs', 3, track_count=12, fits=True)]
+    # shown has another track count: the best of the right count wins even when several fit
+    assert p.better_pick([shown] + two, '1', 12) == '2'
+    # shown has the right count but not the lengths, and two fit: undecidable -> stays
+    same_count = p.candidate('Discogs', 4, track_count=12, fits=False)
+    assert p.better_pick([same_count] + two, '4', 12) is None
     assert p.better_pick([p.candidate('Discogs', 1, track_count=12, fits=True), fit], '1', 12) is None
 
 
@@ -419,3 +424,12 @@ def test_every_ma_track_has_its_own_id():
     node = r.build_release(album, None, '')
     ids = [t['id'] for m in node['media'] for t in m['tracks']]
     assert all(ids) and len(set(ids)) == len(ids)
+
+
+def test_better_pick_prefers_the_album_track_count_over_a_near_miss():
+    p = _pressings()
+    vinyl = p.candidate('Metal Archives', 1, '2022', '12" vinyl', track_count=10, fits=False)
+    cd = p.candidate('Metal Archives', 2, '1994', 'CD', track_count=11, fits=False)
+    cd2 = p.candidate('Metal Archives', 3, '1994', 'Cassette', track_count=11, fits=False)
+    assert p.better_pick([cd, cd2, vinyl], '1', 11) == '2'       # best same-count one
+    assert p.better_pick([cd, cd2, vinyl], '2', 11) is None      # already the right count: stays

@@ -168,9 +168,10 @@ def _filled(album, source, result=None, error=None):
     # The first lookup checks only a few pressings; now that all are known, a clearly better one
     # replaces the automatic choice -- never a pressing the user clicked.
     if not st.get('user_picked') and album.id in _api.tagger.albums:
-        better = better_pick(st['items'], st['chosen'], len(album.tracks))
+        ranked = [c for c, _ in rank(st['items'], local_info(album))]
+        better = better_pick(ranked, st['chosen'], len(album.tracks))
         if better:
-            _api.logger.debug("pressings: %s switches to %s, the only one that fits", source, better)
+            _api.logger.debug("pressings: %s switches to %s (fits, or has the album's track count)", source, better)
             load(album, source, better)
 
 

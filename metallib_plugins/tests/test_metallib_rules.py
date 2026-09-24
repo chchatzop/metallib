@@ -49,3 +49,9 @@ def test_original_date_is_the_earliest_year_never_a_reissue():
     # Discogs dates are a pressing's: only when neither MA nor MB has one.
     assert choose('originaldate', {DG: ['1990-01-01'], MA: ['1995']}) == (MA, ['1995'])
     assert choose('originaldate', {DG: ['1990']}) == (DG, ['1990'])
+
+
+def test_track_position_never_comes_from_a_source_column():
+    # A 10-track vinyl in the MA column must not renumber an 11-track CD.
+    for tag in ('tracknumber', 'totaltracks', 'discnumber', 'totaldiscs'):
+        assert choose(tag, {MB: ['7'], MA: ['6']}) is None, tag

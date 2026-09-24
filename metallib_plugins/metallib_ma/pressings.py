@@ -123,14 +123,22 @@ def from_discogs(versions):
 
 
 def better_pick(candidates, chosen_id, want):
-    """The pressing to switch to automatically, or None: only when the shown one does not fit and
-    exactly one pressing has the album's track count AND fitting lengths (same rule as the first
-    Metal Archives pick)."""
+    """The pressing to switch to automatically, or None. `candidates` best first (rank()).
+    - the shown one does not fit and exactly one pressing has the album's track count AND fitting
+      lengths (same rule as the first Metal Archives pick) -> that one;
+    - else, the shown one has another track count while some pressing has the album's -> the best
+      of those (a same-count pressing, even with unmatched lengths, beats a near miss)."""
     shown = next((c for c in candidates if c['id'] == chosen_id), None)
     if shown is not None and shown['fits'] is True and shown['track_count'] == want:
         return None
     fitting = [c for c in candidates if c['track_count'] == want and c['fits'] is True]
-    return fitting[0]['id'] if len(fitting) == 1 else None
+    if len(fitting) == 1:
+        return fitting[0]['id']
+    if shown is not None and shown['track_count'] is not None and shown['track_count'] != want:
+        same = [c for c in candidates if c['track_count'] == want]
+        if same:
+            return same[0]['id']
+    return None
 
 
 def short_label(c):

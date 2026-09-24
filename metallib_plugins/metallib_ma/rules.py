@@ -31,6 +31,10 @@ DATE_TAGS = {'date', 'releasedate'}
 # only when neither MA nor MB has one: its dates belong to a pressing, not the first release.
 ORIGINAL_TAGS = {'originaldate', 'originalyear'}
 
+# A track's POSITION belongs to the album the files are matched to, never to another source's
+# column: a 10-track vinyl in the MA column renumbered an 11-track CD (06 twice, up to 10).
+POSITION_TAGS = {'tracknumber', 'totaltracks', 'discnumber', 'totaldiscs'}
+
 DEFAULT_ORDER = (MA, MB, DG)    # everything else: MA if it has a value, else MB, else Discogs
 
 
@@ -55,6 +59,8 @@ def _year(value):
 def choose(tag, source_values):
     """source_values: {source name: [values]} (a source may be missing or empty).
     -> (source name, values) for New Value, or None when no source has the tag."""
+    if tag in POSITION_TAGS:
+        return None
     have = {name: vals for name, vals in source_values.items() if vals and any(v for v in vals)}
     if not have:
         return None

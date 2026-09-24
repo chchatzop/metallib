@@ -326,7 +326,9 @@ def _on_resolved(cluster, local, hit, result=None, error=None):
         chosen = fitting[0]
     else:
         # Best match first: pressings that fit the files, then the rest; the first is preselected.
-        ordered = fitting + [c for c in result['checked'] if not c['fits']]
+        want = len(local['files'])
+        rest = [c for c in result['checked'] if not c['fits']]
+        ordered = fitting + sorted(rest, key=lambda c: len(c['page']['tracks']) != want)
         rows = [(c['version']['date'], c['version']['label'], c['version']['catalog'],
                  c['version']['format'], c['version']['desc'],
                  '%d tracks%s' % (len(c['page']['tracks']), ' — fits' if c['fits'] else ''))
@@ -472,7 +474,10 @@ def _background_ma(band, title, local):
         return None
     result = _resolve(pick, local, max_fetches=BACKGROUND_PRESSING_FETCHES)
     fitting = [c for c in result['checked'] if c['fits']]
-    chosen = fitting[0] if fitting else (result['checked'][0] if result['checked'] else None)
+    # Nothing fits: a pressing with the album's track count, not the first one checked (a 10-track
+    # vinyl was shown for an 11-track CD whose MA times all differ).
+    same = [c for c in result['checked'] if len(c['page']['tracks']) == len(local['lengths'])]
+    chosen = fitting[0] if fitting else (same or result['checked'] or [None])[0]
     return {'hit': pick, 'result': result, 'chosen': chosen} if chosen else None
 
 
