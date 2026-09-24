@@ -677,6 +677,37 @@ def _keep_file_value(track, tag):
             del track.metadata[tag]
 
 
+# A release-track or disc id belongs to one release: without that release's id it is meaningless.
+_RELEASE_ONLY_IDS = ('musicbrainz_trackid', 'musicbrainz_releasetrackid', 'musicbrainz_discid')
+
+
+def _performer_source(sources):
+    """The one source whose performers a track gets (MA first): MB and MA word instruments
+    differently ("electric guitar" / "guitar"), so mixing them doubled every credit."""
+    return next((n for n in (METAL_ARCHIVES, MUSICBRAINZ, DISCOGS)
+                 if n in sources and any(t.startswith('performer:') for t in sources[n])), None)
+
+
+def _tidy_track(track, sources, user):
+    """Clean what a file may still carry from an earlier save (user: the first A.N.I.M.A.L. save):
+    - no release id in New Value -> no release-track / disc id either;
+    - a source has performers -> New Value has exactly that source's performer entries; other
+      performer entries already in the file go (the file's own stay only when no source has any).
+    Tags the user picked a value for are left alone."""
+    mds = [track.metadata] + [f.metadata for f in track.files]
+    for md in mds:
+        if not md['musicbrainz_albumid']:
+            for tag in _RELEASE_ONLY_IDS:
+                if tag in md and tag not in user:
+                    del md[tag]
+    perf = _performer_source(sources)
+    if perf:
+        keep = {t for t in sources[perf] if t.startswith('performer:')}
+        for md in mds:
+            for tag in [t for t in md if t.startswith('performer:') and t not in keep and t not in user]:
+                del md[tag]
+
+
 def apply_rules(album):
     """Set New Value from the per-field rule (rules.py) on every track that has both sources.
     Never touches a tag the user already picked a source for, nor tags no source has -- unless the
@@ -688,20 +719,20 @@ def apply_rules(album):
     base_mode = pressings_panel.mode(album, _base_source(album))
     for track in album.tracks:
         sources = getattr(track, 'source_metadata', None) or {}
-        if len(sources) < 2 and base_mode is None:
-            continue
         user = dict(getattr(track, 'value_sources', None) or {})
         for f in track.files:
             user.update(getattr(f, 'value_sources', None) or {})
+        if len(sources) < 2 and base_mode is None:
+            _tidy_track(track, sources, user)       # one source: still no leftovers from earlier saves
+            for f in track.files:
+                f.update()
+            continue
         rule_sources = getattr(track, 'rule_sources', None) or {}
         tags = {t for md in sources.values() for t in md if not t.startswith('~')}
         if base_mode is not None:
             # the album's own values that the switched-off source put into New Value
             tags |= {t for t in track.metadata if not t.startswith('~')}
-        # Performers from ONE source per track (MA first): MB and MA word instruments differently
-        # ("electric guitar" / "guitar"), so mixing them doubled every credit (user review).
-        perf = next((n for n in (METAL_ARCHIVES, MUSICBRAINZ, DISCOGS)
-                     if n in sources and any(t.startswith('performer:') for t in sources[n])), None)
+        perf = _performer_source(sources)
         for tag in sorted(tags):
             if tag in user or tag in POSITION_TAGS:
                 continue
@@ -730,6 +761,7 @@ def apply_rules(album):
                 f.metadata[tag] = values
             changed += 1
         track.rule_sources = rule_sources
+        _tidy_track(track, sources, user)
         for tag, values in _hidden_facts(sources, user, rule_sources).items():
             track.metadata[tag] = values
             for f in track.files:

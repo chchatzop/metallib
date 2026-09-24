@@ -537,3 +537,24 @@ def test_lineup_names_lose_notes_and_backing_vocals_use_the_mb_word():
     assert tags['performer:background vocals'] == ['Martín Carrizo', 'Marcelo Corvalán']
     assert 'performer:backing vocals' not in tags
     assert r.person_name('X (RIP 2019)') == 'X' and r.person_name('Band (live)') == 'Band (live)'
+
+
+def test_tidy_drops_orphan_release_track_ids_and_foreign_performers():
+    import importlib
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    from picard.metadata import Metadata
+    old = _KeepFile(musicbrainz_trackid='71633f01', **{'performer:backing vocals': 'Martín Carrizo (R.I.P. 2022)',
+                                                      'performer:guitar': 'X'})
+    track = _KeepTrack([old])
+    ma = Metadata(**{'performer:background vocals': 'Martín Carrizo', 'performer:guitar': 'X'})
+    m._tidy_track(track, {'Metal Archives': ma}, {})
+    assert 'musicbrainz_trackid' not in old.metadata                       # no release id -> no release-track id
+    assert sorted(t for t in old.metadata if t.startswith('performer:')) == ['performer:guitar']
+    kept = _KeepFile(musicbrainz_albumid='rel', musicbrainz_trackid='trk')
+    m._tidy_track(_KeepTrack([kept]), {}, {})
+    assert kept.metadata['musicbrainz_trackid'] == 'trk'                   # with its release id it stays
+    own = _KeepFile(**{'performer:drums': 'Y'})
+    m._tidy_track(_KeepTrack([own]), {'MusicBrainz': Metadata(title='t')}, {})
+    assert own.metadata['performer:drums'] == 'Y'                          # no source has performers: file's own
