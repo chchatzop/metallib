@@ -364,3 +364,18 @@ def test_pair_by_position_when_a_differing_length_has_the_same_title():
 
 def test_title_key_ignores_bonus_annotation():
     assert r.title_key('Hell (Bonus Track)') == r.title_key('Hell') == r.title_key('Hell [bonus]')
+
+
+def test_discogs_format_includes_the_media():
+    p = _pressings()
+    c = p.from_discogs([{'id': 1, 'major_formats': ['CD'], 'format': 'Album, Limited Edition'}])[0]
+    assert c['format'] == 'CD, Album, Limited Edition'
+
+
+def test_better_pick_only_when_exactly_one_fits():
+    p = _pressings()
+    shown = p.candidate('Discogs', 1, track_count=11, fits=False)
+    fit = p.candidate('Discogs', 2, track_count=12, fits=True)
+    assert p.better_pick([shown, fit], '1', 12) == '2'
+    assert p.better_pick([shown, fit, p.candidate('Discogs', 3, track_count=12, fits=True)], '1', 12) is None
+    assert p.better_pick([p.candidate('Discogs', 1, track_count=12, fits=True), fit], '1', 12) is None

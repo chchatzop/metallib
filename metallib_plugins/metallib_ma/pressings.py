@@ -109,9 +109,24 @@ def from_mb(releases):
 
 def from_discogs(versions):
     """Discogs master versions (/masters/{id}/versions)."""
-    return [candidate('Discogs', v['id'], v.get('released'), v.get('format'), v.get('label'), v.get('catno'),
+    # "format" holds only the descriptions ("Album, Limited Edition"); the media is in major_formats.
+    def fmt(v):
+        major = [m for m in v.get('major_formats') or [] if m]
+        return ', '.join(dict.fromkeys(major + [p.strip() for p in (v.get('format') or '').split(',') if p.strip()]))
+    return [candidate('Discogs', v['id'], v.get('released'), fmt(v), v.get('label'), v.get('catno'),
                       v.get('country'))
             for v in versions if v.get('id')]
+
+
+def better_pick(candidates, chosen_id, want):
+    """The pressing to switch to automatically, or None: only when the shown one does not fit and
+    exactly one pressing has the album's track count AND fitting lengths (same rule as the first
+    Metal Archives pick)."""
+    shown = next((c for c in candidates if c['id'] == chosen_id), None)
+    if shown is not None and shown['fits'] is True and shown['track_count'] == want:
+        return None
+    fitting = [c for c in candidates if c['track_count'] == want and c['fits'] is True]
+    return fitting[0]['id'] if len(fitting) == 1 else None
 
 
 def short_label(c):

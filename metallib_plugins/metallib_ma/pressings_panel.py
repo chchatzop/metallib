@@ -22,6 +22,7 @@ from picard.plugin3.api import (
 from picard.util import thread
 
 from .pressings import (
+    better_pick,
     describe,
     rank,
     short_label,
@@ -163,6 +164,13 @@ def _filled(album, source, result=None, error=None):
         if result and c['id'] in result:
             c['track_count'], c['fits'] = result[c['id']]
     refresh(album)
+    # The first lookup checks only a few pressings; now that all are known, a clearly better one
+    # replaces the automatic choice -- never a pressing the user clicked.
+    if not st.get('user_picked') and album.id in _api.tagger.albums:
+        better = better_pick(st['items'], st['chosen'], len(album.tracks))
+        if better:
+            _api.logger.debug("pressings: %s switches to %s, the only one that fits", source, better)
+            load(album, source, better)
 
 
 # -- loading a clicked pressing into its column ------------------------------------------------------
@@ -337,6 +345,7 @@ class PressingsPanel(QtWidgets.QWidget):
     def _clicked(self, source, item):
         cid = item.data(QtCore.Qt.ItemDataRole.UserRole)
         if cid and self.album is not None and cid != state(self.album)[source]['chosen']:
+            state(self.album)[source]['user_picked'] = True
             load(self.album, source, cid)
 
 
