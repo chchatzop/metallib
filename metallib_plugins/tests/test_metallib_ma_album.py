@@ -84,6 +84,10 @@ def test_build_release_node():
     assert node['media'][0]['tracks'][0]['length'] == 329000
     assert node['label-info'] == [{'label': {'name': 'Season of Mist'}, 'catalog-number': 'SOM 532D'}]
     assert node['release-group']['primary-type'] == 'Album'
+    # the pressing's description "Digipak" -> ~releasecomment / ~releasepackaging for naming
+    assert node['disambiguation'] == 'Digipak' and node['packaging'] == 'Digipak'
+    plain = dict(pressing, desc='')
+    assert 'packaging' not in r.build_release(album, plain, '2019-10-18')
 
 
 class TestMetalArchivesAlbumInPicard(PicardTestCase):
@@ -379,3 +383,22 @@ def test_better_pick_only_when_exactly_one_fits():
     assert p.better_pick([shown, fit], '1', 12) == '2'
     assert p.better_pick([shown, fit, p.candidate('Discogs', 3, track_count=12, fits=True)], '1', 12) is None
     assert p.better_pick([p.candidate('Discogs', 1, track_count=12, fits=True), fit], '1', 12) is None
+
+
+def test_hidden_naming_facts_follow_ma_band_and_the_catalog_source():
+    import importlib
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    from picard.metadata import Metadata
+    mb, ma = Metadata(), Metadata()
+    mb['~releasecomment'], mb['~releasepackaging'] = 'Japanese edition', 'Jewel Case'
+    ma['~ma_band_country_code'], ma['~releasecomment'] = 'NO', 'Limited edition, Digipak'
+    ma['~releasepackaging'] = 'Digipak'
+    sources = {'MusicBrainz': mb, 'Metal Archives': ma}
+    got = m._hidden_facts(sources, {}, {'catalognumber': 'Metal Archives'})
+    assert got['~ma_band_country_code'] == ['NO']
+    assert (got['~releasecomment'], got['~releasepackaging']) == (['Limited edition, Digipak'], ['Digipak'])
+    # The user took the catalog from MusicBrainz: the edition notes describe that pressing.
+    got = m._hidden_facts(sources, {'catalognumber': 'MusicBrainz'}, {'catalognumber': 'Metal Archives'})
+    assert got['~releasecomment'] == ['Japanese edition'] and got['~ma_band_country_code'] == ['NO']

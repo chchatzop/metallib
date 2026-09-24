@@ -1,0 +1,90 @@
+title: MetalLib library layout
+description: |
+  Letter/Artist (CC)/YYYY - Album (type) (edition) (RE yyyy) [catalog MEDIA] [quality]/Artist - Album (edition) - NN - Title. Needs the MetalLib Quality and MetalLib Naming plugins.
+author: chchatzop
+license: GNU General Public License version 2 or later
+version: '1.0'
+last_updated: 2026-09-24 06:53:28 UTC
+script_language_version: '1.1'
+script: |
+  $noop(
+  MetalLib library layout -
+    Letter / Artist [CC] / YYYY - Album [type] [edition] [RE yyyy] [catalog MEDIA] [quality] /
+    Artist - Album [edition] [RE yyyy] - NN - Title
+    where round brackets are written for type / edition / RE / CC.
+  Line breaks and tabs are ignored - spaces are not.
+  Needs the MetalLib Quality and MetalLib Naming plugins.
+  )
+
+  $noop(--- values ---)
+  $noop(Names: ASCII - colon becomes space-dash - as the library has them. The artist loses trailing
+  dots - D.R.I - an album or title keeps an ending ... or initialism - T.O.M.B.)
+  $set(_artist,$clean($if2(%albumartist%,%artist%)))
+  $set(_album,$clean(%album%,keep))
+  $set(_title,$clean($if2(%title%,%_filename%),title))
+  $noop(Reissue: a pressing at least this many years after the first release gets RE yyyy)
+  $set(_re_gap,2)
+  $noop(Country: the band's from Metal Archives - else the release country unless XW or XE)
+  $set(_cc,$if2(%_ma_band_country_code%,$if($not($in(XW XE,%releasecountry%)),%releasecountry%)))
+  $noop(Folder year = first release - a later pressing year shows as RE or RM)
+  $set(_year,$left($if2(%originalyear%,%originaldate%,%date%),4))
+  $set(_pyear,$left(%date%,4))
+  $set(_later,$if($and(%_year%,%_pyear%,$gte($sub(%_pyear%,%_year%),%_re_gap%)),%_pyear%))
+  $set(_notes,$lower(%_releasecomment% %_releasepackaging% %media%))
+  $set(_types,$lower(%releasetype%))
+  $set(_rm,$if2(%remaster%,$if($in(%_notes%,remaster),%_later%)))
+  $set(_re,$if2(%reissue%,$if($not(%_rm%),%_later%)))
+
+  $noop(--- edition flags: your own edition tag or the release notes ---)
+  $set(_digipak,$if($or($in(%_notes%,digipak),$in(%_notes%,digipack)),1))
+  $set(_jap,$if($or($in(%edition%,Jap),$in(%_notes%,japan),$and($eq(%releasecountry%,JP),$ne(%_cc%,JP))),1))
+  $set(_lim,$if($or($in(%edition%,Lim),$in(%_notes%,limited)),1))
+  $set(_us,$if($in(%edition%,US),1))
+  $set(_dlx,$if($or($in(%edition%,Dlx),$in(%_notes%,deluxe)),1))
+  $set(_expdel,$if($in(%edition%,Exp Del),1))
+  $set(_exp,$if($or($in(%edition%,Expnd),$and($in(%_notes%,expanded),$not(%_expdel%))),1))
+
+  $noop(--- source bracket: WEB for digital - else catalog + MEDIA - else MEDIA ---)
+  $noop(A copy ripped from the web is WEB whatever its tags say - the folder name tells - else the album media)
+  $set(_rip,$folder_media(%_dirname%))
+  $set(_src,$if2($if($or($eq(%_rip%,WEB),$eq(%catnum%,WEB)),WEB),$media_code($album_media()),%_rip%,$media_code(%catnum%)))
+  $set(_bracket,$if($eq(%_src%,WEB),WEB,$with_media($clean($getmulti(%catalognumber%,0)),%_src%)))
+  $set(_q,$album_quality())
+
+  $noop(--- folders ---)
+  $first_letter(%_artist%)/
+  %_artist%$if(%_cc%, \(%_cc%\))/
+  $if(%_year%,%_year% - )%_album%
+  $if($in(%_types%,single), \(Single\))
+  $if($in(%_types%,ep), \(EP\))
+  $if($in(%_types%,demo), \(Demo\))
+  $if($in(%_types%,compilation), \(Compilation\))
+  $if($in(%_types%,live), \(Live\))
+  $if($in(%releasestatus%,bootleg), \(Bootleg\))
+  $if($in(%releasestatus%,promo), \(Promo\))
+  $if(%_digipak%, \(Digipak\))
+  $if(%_jap%, \(Jap. Ed.\))
+  $if(%_lim%, \(Lim. Ed.\))
+  $if(%_us%, \(US Ed.\))
+  $if(%_dlx%, \(Del. Ed.\))
+  $if(%_expdel%, \(Exp. Del. Ed.\))
+  $if(%_exp%, \(Exp. Ed.\))
+  $if(%_re%, \(RE %_re%\))
+  $if(%_rm%, \(RM %_rm%\))
+  $if(%_bracket%, [%_bracket%])
+  $if(%_q%, [%_q%])
+  /
+
+  $noop(--- file ---)
+  %_artist% - %_album%
+  $if($in(%_types%,single), \(Single\))
+  $if(%_dlx%, \(Del. Ed.\))
+  $if(%_jap%, \(Jap. Ed.\))
+  $if(%_lim%, \(Lim. Ed.\))
+  $if(%_us%, \(US. Ed.\))
+  $if(%_expdel%, \(Exp. Del. Ed.\))
+  $if(%_exp%, \(Exp. Ed.\))
+  $if(%_re%, \(RE %_re%\))
+  $if(%_rm%, \(RM %_rm%\))
+   - $if($gt(%totaldiscs%,1),%discnumber%-)$num(%tracknumber%,2) - %_title%
+id: ba1d5bea-c704-4b6d-9e07-5f7ace31e19d

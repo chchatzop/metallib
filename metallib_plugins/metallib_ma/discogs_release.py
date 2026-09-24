@@ -12,7 +12,6 @@ from .ma_release import (
     TAPE,
     VINYL,
     format_kind,
-    ma_date,
 )
 
 
@@ -147,6 +146,11 @@ def credit_tags(release, track, index):
 _MEDIA = {DIGITAL: 'Digital Media', CD: 'CD', VINYL: 'Vinyl', TAPE: 'Cassette'}
 
 
+# Format descriptions that only restate the release type or media, not an edition.
+_PLAIN_DESCRIPTIONS = {'album', 'lp', 'ep', 'single', 'mini-album', 'compilation', 'stereo', 'mono',
+                       '12"', '7"', '10"', '33 ⅓ rpm', '45 rpm', 'cd', 'cdr'}
+
+
 def build_node(release):
     """Picard release node for a Discogs release (ids are "metallib-dg-..." placeholders the caller
     removes). Credits and genres are returned separately: {node, credits: [{tag: names}], genres}."""
@@ -166,9 +170,8 @@ def build_node(release):
         per_track_credits.append(credit_tags(release, t, i))
     label = (release.get('labels') or [{}])[0]
     node = {'id': rid, 'title': release.get('title') or '', 'status': 'Official', 'artist-credit': credit,
-            'release-group': {'id': rid + '-rg', 'artist-credit': [], 'primary-type': 'Album',
-                              'first-release-date': ma_date(release.get('released') or '') or
-                              str(release.get('year') or '')},
+            # No first-release-date: a Discogs release's date is its pressing's, not the original's.
+            'release-group': {'id': rid + '-rg', 'artist-credit': [], 'primary-type': 'Album'},
             'media': [{'position': d, 'format': _MEDIA.get(format_kind(fmt), fmt), 'track-count': len(ts),
                        'tracks': ts} for d, ts in sorted(media.items())]}
     date = release.get('released') or ''
@@ -181,6 +184,18 @@ def build_node(release):
                                'catalog-number': '' if (label.get('catno') or '').lower() == 'none' else label.get('catno', '')}]
     if release.get('country'):
         node['country'] = release['country']
+    # "Limited Edition, Deluxe Edition, Digipak" -> ~releasecomment / ~releasepackaging, which the
+    # naming script turns into (Lim. Ed.) (Del. Ed.) (Digipak), as for MusicBrainz releases.
+    notes = []
+    for f in release.get('formats') or []:
+        notes += [d for d in f.get('descriptions') or [] if d.lower() not in _PLAIN_DESCRIPTIONS]
+        if f.get('text'):
+            notes.append(f['text'])
+    notes = list(dict.fromkeys(notes))
+    if notes:
+        node['disambiguation'] = ', '.join(notes)
+    if any('digipak' in n.lower() or 'digipack' in n.lower() for n in notes):
+        node['packaging'] = 'Digipak'
     barcodes = [i.get('value', '') for i in release.get('identifiers') or [] if i.get('type') == 'Barcode']
     if barcodes:
         node['barcode'] = re.sub(r'\s+', '', barcodes[0])

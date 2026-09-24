@@ -24,7 +24,12 @@ MB_FIRST_PREFIXES = ('musicbrainz_',)
 
 # Dates: the more precise value wins (MB "1996-03-12" over MA "1996"); equal precision -> MA,
 # whose date belongs to the pressing the user picked.
-DATE_TAGS = {'date', 'originaldate', 'releasedate'}
+DATE_TAGS = {'date', 'releasedate'}
+
+# First release: the EARLIEST year any source knows (a reissue's date must never become the
+# original -- it names the folder "YYYY - Album"), the most precise value within that year. Discogs
+# only when neither MA nor MB has one: its dates belong to a pressing, not the first release.
+ORIGINAL_TAGS = {'originaldate', 'originalyear'}
 
 DEFAULT_ORDER = (MA, MB, DG)    # everything else: MA if it has a value, else MB, else Discogs
 
@@ -42,12 +47,23 @@ def _precision(value):
     return len(re.findall(r'\d+', value or ''))        # "1996" 1, "1996-03" 2, "1996-03-12" 3
 
 
+def _year(value):
+    m = re.match(r'\s*(\d{4})', value or '')
+    return int(m.group(1)) if m else 0
+
+
 def choose(tag, source_values):
     """source_values: {source name: [values]} (a source may be missing or empty).
     -> (source name, values) for New Value, or None when no source has the tag."""
     have = {name: vals for name, vals in source_values.items() if vals and any(v for v in vals)}
     if not have:
         return None
+    if tag in ORIGINAL_TAGS:
+        known = ({n: v for n, v in have.items() if n != DG and _year(v[0])}
+                 or {n: v for n, v in have.items() if _year(v[0])})
+        if known:
+            best = min(known, key=lambda n: (_year(known[n][0]), -_precision(known[n][0]), n != MA))
+            return best, known[best]
     if tag in DATE_TAGS:
         best = max(have, key=lambda name: (_precision(have[name][0]), name == MA, name == MB))
         return best, have[best]

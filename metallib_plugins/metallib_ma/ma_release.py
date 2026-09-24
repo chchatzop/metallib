@@ -191,6 +191,13 @@ def build_release(album, pressing, original_date=''):
         node['date'] = date
     if label or catalog:
         node['label-info'] = [{'label': {'name': label or ''}, 'catalog-number': catalog or ''}]
+    # The pressing's description ("Limited edition, Digipak") -> ~releasecomment / ~releasepackaging
+    # for the naming script's (Lim. Ed.) / (Digipak), as for MusicBrainz releases.
+    desc = ((pressing or {}).get('desc') or '').strip()
+    if desc:
+        node['disambiguation'] = desc
+        if 'digipak' in desc.lower() or 'digipack' in desc.lower():
+            node['packaging'] = 'Digipak'
     return node
 
 

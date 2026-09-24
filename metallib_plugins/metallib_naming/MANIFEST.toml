@@ -1,0 +1,13 @@
+uuid = "258bfdfa-343f-4087-8596-ec0bd5384f56"
+name = "MetalLib Naming"
+authors = ["chchatzop"]
+version = "0.1.0"
+description = "Helpers for the MetalLib file naming script: letter folder, album media, WEB/CD/LP source tag."
+long_description = """
+Adds `$first_letter()`, `$album_media()`, `$media_code()` and `$with_media()` for Picard's file naming
+script, and ships the "MetalLib library layout" naming script (MetalLib.ptsp) to import in
+Options -> File Naming. The naming rules themselves stay in the script, editable there.
+"""
+api = ["3.0"]
+license = "GPL-2.0-or-later"
+categories = ["scripting"]

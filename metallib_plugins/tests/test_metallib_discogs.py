@@ -170,3 +170,12 @@ def test_rules_discogs_only_fills_gaps():
     assert rules.choose('label', {'Metal Archives': ['MA'], 'Discogs': ['DG']}) == ('Metal Archives', ['MA'])
     assert rules.choose('barcode', {'MusicBrainz': [], 'Discogs': ['123']}) == ('Discogs', ['123'])
     assert rules.choose('date', {'Metal Archives': ['1996'], 'Discogs': ['1996-03-12']}) == ('Discogs', ['1996-03-12'])
+
+
+def test_build_node_edition_notes_and_no_first_release_date():
+    rel = dict(RELEASE, formats=[{'name': 'CD', 'descriptions': ['Album', 'Limited Edition', 'Digipak'],
+                                  'text': 'Gold disc'}])
+    node = dr().build_node(rel)['node']
+    assert node['disambiguation'] == 'Limited Edition, Digipak, Gold disc'
+    assert node['packaging'] == 'Digipak'
+    assert 'first-release-date' not in node['release-group']        # a pressing's date is not the original's

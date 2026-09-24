@@ -453,6 +453,9 @@ def _ma_fix(ma_album_id, band, lineup, md):
     md['~ma_album_id'] = ma_album_id
     if band.get('genre'):
         md['genre'] = band['genre']
+    for key in ('country', 'country_code', 'status', 'formed'):      # %_ma_band_country_code% etc.
+        if band.get(key):
+            md['~ma_band_' + key] = band[key]
     _apply_lineup(lineup, md)
 
 
@@ -551,6 +554,27 @@ _ALBUM_TAGS = ('album', 'albumartist', 'date', 'originaldate', 'originalyear', '
                'barcode', 'releasetype', 'releasecountry', 'media', 'genre', 'script')
 
 
+# Hidden (script-only, never written) facts the naming script uses. The rules skip ~tags, so they
+# are carried over here: the band's from Metal Archives, the pressing's from whichever source the
+# catalog number comes from (so "(Digipak)" / "(Lim. Ed.)" describe the same pressing as "[SOM 650B]").
+_PRESSING_FACTS = ('~releasecomment', '~releasepackaging')
+
+
+def _hidden_facts(sources, user, rule_sources):
+    out = {}
+    ma = sources.get(METAL_ARCHIVES)
+    if ma is not None:
+        for tag in ma:
+            if tag.startswith('~ma_band_'):
+                out[tag] = list(ma.getall(tag))
+    pressing = sources.get(user.get('catalognumber') or rule_sources.get('catalognumber')
+                           or rule_sources.get('media') or '')
+    if pressing is not None:
+        for tag in _PRESSING_FACTS:
+            out[tag] = list(pressing.getall(tag)) if tag in pressing else ['']
+    return out
+
+
 def apply_rules(album):
     """Set New Value from the per-field rule (rules.py) on every track that has both sources.
     Never touches a tag the user already picked a source for, nor tags no source has.
@@ -584,6 +608,12 @@ def apply_rules(album):
                 f.metadata[tag] = values
             changed += 1
         track.rule_sources = rule_sources
+        for tag, values in _hidden_facts(sources, user, rule_sources).items():
+            track.metadata[tag] = values
+            for f in track.files:
+                f.metadata[tag] = values
+            if tag.startswith('~ma_band_') or tag in _PRESSING_FACTS:
+                album_values.setdefault(tag, values)
         for f in track.files:
             f.update()
         track.update()

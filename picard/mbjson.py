@@ -121,6 +121,7 @@ _RELEASE_TO_METADATA = {
     'country': 'releasecountry',
     'date': 'date',
     'disambiguation': '~releasecomment',
+    'packaging': '~releasepackaging',  # MetalLib: for naming scripts, e.g. "(Digipak)"
     'title': 'album',
 }
 

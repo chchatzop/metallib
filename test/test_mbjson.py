@@ -137,6 +137,7 @@ class ReleaseTest(MBJSONTest):
         self.assertEqual(m['~albumartists_sort'], 'Pink Floyd')
         self.assertEqual(m['~albumartists_countries'], 'GB')
         self.assertEqual(m['~releasecomment'], 'stereo')
+        self.assertEqual(m['~releasepackaging'], 'Gatefold Cover')  # MetalLib
         self.assertEqual(m['~releaseannotation'], 'Original Vinyl release')
         self.assertEqual(m['~releaselanguage'], 'eng')
         self.assertEqual(m.getall('~releasecountries'), ['GB', 'NZ'])

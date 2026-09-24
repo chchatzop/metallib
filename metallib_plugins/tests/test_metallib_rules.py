@@ -37,3 +37,15 @@ def test_dates_most_precise_wins_then_ma():
     assert choose('date', {MB: ['1996-03-12'], MA: ['1996']}) == (MB, ['1996-03-12'])
     assert choose('date', {MB: ['1996'], MA: ['1996-04-30']}) == (MA, ['1996-04-30'])
     assert choose('date', {MB: ['1996-03-12'], MA: ['1996-04-30']}) == (MA, ['1996-04-30'])
+
+
+def test_original_date_is_the_earliest_year_never_a_reissue():
+    from rules import DG
+    # A more precise but LATER date (a reissue) must not become the first release -- it names the folder.
+    assert choose('originaldate', {MB: ['2021-05-01'], MA: ['1995']}) == (MA, ['1995'])
+    # Same year: the more precise value.
+    assert choose('originaldate', {MB: ['1995-03-12'], MA: ['1995']}) == (MB, ['1995-03-12'])
+    assert choose('originalyear', {MB: ['1996'], MA: ['1995']}) == (MA, ['1995'])
+    # Discogs dates are a pressing's: only when neither MA nor MB has one.
+    assert choose('originaldate', {DG: ['1990-01-01'], MA: ['1995']}) == (MA, ['1995'])
+    assert choose('originaldate', {DG: ['1990']}) == (DG, ['1990'])
