@@ -56,16 +56,20 @@ def rank(candidates, local):
     return [(c, group(c) == 2) for c in ordered]
 
 
+def unmatched(c, want):
+    """Same track count as the album, but its lengths do not fit the files (shown in red)."""
+    return c['fits'] is False and c['track_count'] == want
+
+
 def describe(c, want=0):
-    """One-line text: "2026 · CD · Nuclear Blast · NB 123-2 · Europe · 11 tracks, lengths fit"."""
+    """One-line text: "2026 · CD · Nuclear Blast · NB 123-2 · Europe · 11 tracks". Only a problem is
+    spelled out ("lengths unmatched"); fitting lengths say nothing (user: saves space)."""
     parts = [p for p in (c['date'][:10] if c['date'] else '', c['format'], c['label'], c['catalog'],
                          c['country']) if p]
     if c['track_count'] is not None:
         tail = '%d tracks' % c['track_count']
-        if c['fits'] is True:
-            tail += ', lengths fit'
-        elif c['fits'] is False and c['track_count'] == want:
-            tail += ', lengths differ'
+        if unmatched(c, want):
+            tail += ', lengths unmatched'
         parts.append(tail)
     else:
         parts.append('checking...')

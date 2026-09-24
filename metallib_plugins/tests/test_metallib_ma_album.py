@@ -287,8 +287,11 @@ def test_pressings_rank_exact_count_first_near_misses_greyed():
 def test_pressing_description():
     p = _pressings()
     c = p.candidate('Metal Archives', 9, 'January 30th, 2026', 'Digital', 'Independent', track_count=7, fits=True)
-    assert p.describe(c, 7) == 'January 30th, · Digital · Independent · 7 tracks, lengths fit' or \
-        p.describe(c, 7).endswith('7 tracks, lengths fit')
+    assert p.describe(c, 7).endswith('· 7 tracks')                   # fitting lengths: nothing said
+    bad = p.candidate('Discogs', 2, '2026', 'CD', track_count=7, fits=False)
+    assert p.describe(bad, 7).endswith('7 tracks, lengths unmatched') and p.unmatched(bad, 7)
+    other = p.candidate('Discogs', 3, '2026', 'CD', track_count=9, fits=False)
+    assert p.describe(other, 7).endswith('9 tracks') and not p.unmatched(other, 7)   # greyed instead
     assert p.describe(p.candidate('Discogs', 1, '2026', 'LP'), 7).endswith('checking...')
 
 

@@ -26,6 +26,7 @@ from .pressings import (
     describe,
     rank,
     short_label,
+    unmatched,
 )
 
 
@@ -316,6 +317,7 @@ class PressingsPanel(QtWidgets.QWidget):
         self.title.setText('Pressings of "%s" — %d tracks here; click one to load it into its column'
                            % (album.metadata['album'], len(album.tracks)))
         local = local_info(album)
+        red = QtGui.QBrush(QtGui.QColor(200, 0, 0))
         grey = QtGui.QBrush(self.palette().color(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text))
         for source, lst in self.lists.items():
             st = state(album)[source]
@@ -329,17 +331,23 @@ class PressingsPanel(QtWidgets.QWidget):
                 item = QtWidgets.QListWidgetItem(text)
                 item.setData(QtCore.Qt.ItemDataRole.UserRole, c['id'])
                 tip = [text, '%s pressing %s%s' % (source, c['id'], ' — ' + c['desc'] if c['desc'] else '')]
+                bad = unmatched(c, local['track_count'])
                 if greyed:
                     tip.append('Different track count from your album')
+                elif bad:
+                    tip.append('Same track count, but its track lengths do not match your files')
                 item.setToolTip('\n'.join(tip))
                 if greyed:
                     item.setForeground(grey)
+                elif bad:
+                    item.setForeground(red)
                 if st['chosen'] == c['id']:
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
                     item.setBackground(self.palette().highlight())
-                    item.setForeground(self.palette().highlightedText())
+                    # still red when its lengths are unmatched, light enough to read on the highlight
+                    item.setForeground(QtGui.QColor(255, 150, 150) if bad else self.palette().highlightedText())
                 lst.addItem(item)
 
     def _clicked(self, source, item):
