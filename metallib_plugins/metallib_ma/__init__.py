@@ -1028,6 +1028,21 @@ def _tagger_load_album(album_id, *args, **kwargs):
     return _originals['load_album'](album_id, *args, **kwargs)
 
 
+def _move_file_to_nat(file, recordingid, node=None):
+    """Picard puts a newly loaded file that has a recording id but no release id under
+    "[standalone recordings]". An ALBUM file saved with "Album info only" is exactly that (its
+    pressing is on no MusicBrainz release), and there it could not be clustered or looked up again
+    (user). Such files -- they have an album tag -- wait in Unclustered Files like any other album
+    file. Only the automatic move while loading; a search or session restore still does its own."""
+    import sys
+    loading = sys._getframe(1).f_code.co_name == '_file_loaded'
+    if loading and node is None and file.metadata['album']:
+        _api.logger.debug("%r: album file with only a recording id -> unclustered, not standalone", file)
+        _api.tagger.unclustered_files.add_file(file)
+        return None
+    return _originals['move_file_to_nat'](file, recordingid, node=node)
+
+
 def _hook_session(api):
     from picard.session import session_loader
     manager = session_loader.AlbumManager
@@ -1037,6 +1052,8 @@ def _hook_session(api):
     manager._build_from_cache = _session_build
     _originals['load_album'] = api.tagger.load_album
     api.tagger.load_album = _tagger_load_album
+    _originals['move_file_to_nat'] = api.tagger.move_file_to_nat
+    api.tagger.move_file_to_nat = _move_file_to_nat
 
 
 def _unhook_session():
@@ -1051,6 +1068,12 @@ def _unhook_session():
         except AttributeError:
             pass
         _originals.pop('load_album')
+    if 'move_file_to_nat' in _originals and _api is not None:
+        try:
+            del _api.tagger.move_file_to_nat
+        except AttributeError:
+            pass
+        _originals.pop('move_file_to_nat')
 
 
 def disable() -> None:
