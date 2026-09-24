@@ -1,4 +1,4 @@
-# MetalLib -- the Pressings panel (under the left pane): one list per source (MusicBrainz, Metal
+# MetalLib -- the Pressings panel (a full-width row above the tag panel): one list per source (MusicBrainz, Metal
 # Archives, Discogs) for the selected album. Exact track-count matches first, best on top; near
 # misses greyed below; the pressing shown in the source's column is highlighted. Clicking another
 # pressing loads it into that source's column only; New Value is then refreshed by the per-field
@@ -393,8 +393,8 @@ def _on_selection(objects):
 
 
 def install(api, tries=100):
-    """Put the panel under the left (clusters) pane of the main window. Plugins start before the
-    window exists, so this retries until it does."""
+    """Put the panel across the whole window, between the file/album panes and the tag panel (user).
+    Plugins start before the window exists, so this retries until it does."""
     global _panel, _api
     _api = api
     window = getattr(api.tagger, 'window', None)
@@ -404,28 +404,24 @@ def install(api, tries=100):
         return
     if _panel is not None:
         return
-    main = window.panel                       # splitter: [file browser, clusters pane, albums pane]
-    left = main._views[0].parentWidget()
-    index = main.indexOf(left)
-    sizes = main.sizes()                      # moving the pane resets its width: keep Picard's layout
-    split = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-    split.setObjectName('metallib_pressings_splitter')
-    split.setChildrenCollapsible(False)
-    main.insertWidget(index, split)
-    split.addWidget(left)
-    if any(sizes):
-        main.setSizes(sizes)
+    rows = window.panel.parentWidget()        # Picard's vertical splitter: [panes, tag panel]
+    if not isinstance(rows, QtWidgets.QSplitter):
+        return
+    before = rows.sizes()
     _panel = PressingsPanel()
-    split.addWidget(_panel)
-    split.setStretchFactor(0, 3)
-    split.setStretchFactor(1, 2)
+    rows.insertWidget(rows.indexOf(window.panel) + 1, _panel)
+    rows.setStretchFactor(rows.indexOf(_panel), 0)
+    if len(before) == 2 and sum(before):
+        # first layout: the panes keep most of their height, the panel takes a slice of it
+        panes, tags = before
+        rows.setSizes([int(panes * 0.65), panes - int(panes * 0.65), tags])
     window.selection_updated.connect(_on_selection)
-    splitters = (split, _panel.splitter)
+    splitters = (rows, _panel.splitter)
     _restore_layout(splitters)
-    # Picard restores its own panes when the window is shown, possibly after this: once more then.
+    # Picard restores its own splitters when the window is shown, possibly after this: once more then.
     QtCore.QTimer.singleShot(0, partial(_restore_layout, splitters))
-    for s in splitters:
-        s.splitterMoved.connect(partial(_save_layout, splitters))
+    for sp in splitters:
+        sp.splitterMoved.connect(partial(_save_layout, splitters))
 
 
 # Picard saves/restores splitter positions only for splitters that exist when its window opens;
@@ -458,20 +454,16 @@ def _save_layout(splitters, *args):
 
 
 def uninstall():
-    """Put the left pane back where it was."""
+    """Take the panel out of the window again."""
     global _panel
     if _panel is None:
         return
-    split = _panel.parentWidget()
-    main = split.parentWidget()
     try:
         _api.tagger.window.selection_updated.disconnect(_on_selection)
     except (TypeError, RuntimeError):
         pass
-    index = main.indexOf(split)
-    main.insertWidget(index, split.widget(0))
-    split.setParent(None)
-    split.deleteLater()
+    _panel.setParent(None)
+    _panel.deleteLater()
     _panel = None
 
 
