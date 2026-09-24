@@ -540,3 +540,49 @@ def test_spacing_only_title_difference_is_a_title_match():
               {'title': 'Everybody\u2019s Got a Plan', 'length': s('4:37'), 'number': '4'}]
     res = place(files(('NYC 93', '4:49', '7')), tracks, similarity2)
     assert (res[0]['track'], res[0]['status'], res[0]['reason']) == (0, OK, 'title+duration')
+
+
+# -- albums that were not looked up: track numbers (numbering.py) ---------------------------------
+
+def _plan(numbers, disc=1, total=0):
+    from numbering import plan
+    return plan([{'disc': disc, 'number': n, 'total': total} for n in numbers])
+
+
+def test_numbering_offset_by_one_is_shifted():
+    new, notes = _plan([2, 3, 4, 5, 6, 7, 8, 9])            # the ripper counted the cover as 01
+    assert [new[i] for i in range(8)] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert notes[1] == ('shifted', 'tracks 02-09 renumbered to 01-08 (none missing)')
+
+
+def test_numbering_clean_run_is_left_alone():
+    assert _plan([1, 2, 3]) == ({}, {})
+
+
+def test_numbering_undecidable_offsets_are_flagged_not_guessed():
+    new, notes = _plan([3, 4, 5])                            # offset, or a rip missing 1-2?
+    assert new == {} and notes[1][0] == 'problem' and 'tracks 1-2 missing' in notes[1][1]
+    new, notes = _plan([2, 3, 4, 5, 6, 7, 8, 9], total=9)    # the tag says 9 tracks: track 1 IS missing
+    assert new == {} and 'track 1 missing' in notes[1][1]
+    new, _ = _plan([3, 4, 5], total=3)                       # the tag says 3 tracks: an offset
+    assert new == {0: 1, 1: 2, 2: 3}
+
+
+def test_numbering_gaps_duplicates_and_missing_numbers_are_reported():
+    assert _plan([1, 2, 4])[1][1] == ('problem', 'missing track number 3 (numbers run 1..4)')
+    assert _plan([1, 2, 2])[1][1] == ('problem', 'track number 2 used more than once')
+    assert _plan([1, 0, 3])[1][1] == ('problem', '1 file(s) have no track number')
+    assert _plan([2, 4, 5])[0] == {}                         # gaps are never shifted
+
+
+def test_numbering_per_disc():
+    from numbering import plan
+    items = [{'disc': 1, 'number': n, 'total': 0} for n in (1, 2)] + \
+            [{'disc': 2, 'number': n, 'total': 0} for n in (2, 3)]
+    new, notes = plan(items)
+    assert new == {2: 1, 3: 2} and notes[2][1].startswith('disc 2: tracks 02-03') and 1 not in notes
+
+
+def test_numbering_reads_n_of_total():
+    from numbering import number
+    assert (number('3/9'), number('03'), number(''), number('x')) == (3, 3, 0, 0)

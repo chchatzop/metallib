@@ -10,6 +10,9 @@
 #   * %_placement%          '' (fine), "renumbered" or "unplaced" -- use it in a custom column
 #     %_placement_reason%   why, in words
 #   * Right-click an album -> "Track placement report..." lists every flagged file.
+#   * An album that was NOT looked up (a cluster): an offset track numbering (02..09, nothing
+#     missing) becomes 01..08 in New Value, flagged "renumbered"; gaps, duplicates or missing
+#     numbers are left alone and flagged "check numbering" (numbering.py).
 #   * Wrong-release guard: when a looked-up album finishes loading and under a third of its files
 #     fit its tracklist while the artist or track count contradicts it, the files go back to
 #     clustering and the album is dropped (flag "unplaced", reason "wrong release ..."). Under
@@ -43,6 +46,10 @@ from .placement import (
     UNPLACED,
     place,
 )
+from .numbering import (
+    number,
+    plan,
+)
 from .release_check import (
     SUSPECT,
     WRONG,
@@ -51,6 +58,8 @@ from .release_check import (
 
 
 _ATTR = '_metallib_placement'       # (status, reason) stored on the File object
+NUMBERING = 'check numbering'       # a cluster whose track numbers need a look
+_FLAGS = (RENUMBERED, UNPLACED, ASSUMED, NUMBERING)
 _api = None
 _originals = {}
 _resolving = False
@@ -59,8 +68,8 @@ _resolving = False
 def _set_flag(file, status, reason):
     setattr(file, _ATTR, (status, reason))
     for md in (file.metadata, file.orig_metadata):
-        md['~placement'] = status if status in (RENUMBERED, UNPLACED, ASSUMED) else ''
-        md['~placement_reason'] = reason if status in (RENUMBERED, UNPLACED, ASSUMED) else ''
+        md['~placement'] = status if status in _FLAGS else ''
+        md['~placement_reason'] = reason if status in _FLAGS else ''
     # Column text is only recomputed when the row updates; a file that did not move (already in
     # "Unmatched Files") would otherwise keep showing its old, empty value.
     file.update_item(update_selection=False)
@@ -268,6 +277,36 @@ def _html(text):
     return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
+# -- albums that were not looked up: track numbers ----------------------------------------------
+
+def renumber_cluster(cluster):
+    """New Value track numbers for a cluster's files: an offset run is shifted to 01..N, anything
+    else odd is flagged. Only New Value changes; nothing is written until the user saves."""
+    files = list(cluster.files)
+    items = [{'disc': number(f.orig_metadata['discnumber']) or 1,
+              'number': number(f.orig_metadata['tracknumber']),
+              'total': number(f.orig_metadata['totaltracks'] or f.orig_metadata['tracktotal'])} for f in files]
+    new, notes = plan(items)
+    for i, f in enumerate(files):
+        kind, text = notes.get(items[i]['disc'], ('', ''))
+        if i in new:
+            f.metadata['tracknumber'] = str(new[i])
+            _set_flag(f, RENUMBERED, text)
+        elif kind == 'problem':
+            _set_flag(f, NUMBERING, text)
+        elif getattr(f, _ATTR, ('', ''))[0] in (RENUMBERED, NUMBERING):
+            if f.metadata['tracknumber'] != f.orig_metadata['tracknumber']:
+                f.metadata['tracknumber'] = f.orig_metadata['tracknumber']   # an earlier shift, undone
+            _set_flag(f, '', '')
+        f.update()
+
+
+def _cluster_add_files(self, files, new_album=True):
+    _originals['cluster_add_files'](self, files, new_album=new_album)
+    if not self.special and self.album is None:          # a real cluster, not an album's unmatched files
+        renumber_cluster(self)
+
+
 def enable(api: PluginApi) -> None:
     global _api
     _api = api
@@ -277,6 +316,9 @@ def enable(api: PluginApi) -> None:
     _originals['tracknum_and_title_from_filename'] = picard_file.tracknum_and_title_from_filename
     Album.match_files = _match_files
     File._guess_tracknumber_and_title = _guess_title_only
+    from picard.cluster import Cluster
+    _originals['cluster_add_files'] = Cluster.add_files
+    Cluster.add_files = _cluster_add_files
     api.register_file_post_addition_to_track_processor(on_file_added_to_track)
     api.register_album_action(PlacementReport)
     api.register_album_action(PlaceByFingerprint)
@@ -289,3 +331,6 @@ def disable() -> None:
         Album.match_files = _originals['match_files']
     if 'guess' in _originals:
         File._guess_tracknumber_and_title = _originals['guess']
+    if 'cluster_add_files' in _originals:
+        from picard.cluster import Cluster
+        Cluster.add_files = _originals.pop('cluster_add_files')
