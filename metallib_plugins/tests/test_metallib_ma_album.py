@@ -558,3 +558,26 @@ def test_tidy_drops_orphan_release_track_ids_and_foreign_performers():
     own = _KeepFile(**{'performer:drums': 'Y'})
     m._tidy_track(_KeepTrack([own]), {'MusicBrainz': Metadata(title='t')}, {})
     assert own.metadata['performer:drums'] == 'Y'                          # no source has performers: file's own
+
+
+def test_language_codes():
+    import importlib
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    lang = importlib.import_module('picard.plugins.metallib_ma_test.languages')
+    assert [lang.iso639_3(x) for x in ('Spanish', 'ES', 'es', 'spa', 'English', 'Old Norse', 'Klingon', '')] == \
+        ['spa', 'spa', 'spa', 'spa', 'eng', 'non', '', '']
+
+
+def test_tidy_removes_scene_tags_and_writes_language_codes():
+    import importlib
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    f = _KeepFile(**{'rip date': '2012-05-04', 'ripping tool': 'EAC Secure', 'retail date': '1994-00-00',
+                     'release type': 'Normal', 'language 2-letter': 'ES', 'language': 'Spanish',
+                     'organization': 'Tommy Gun Records', 'label': 'Tommy Gun Records', 'encoder': 'FLAC 1.2.1'})
+    m._tidy_track(_KeepTrack([f]), {}, {})
+    left = {k: f.metadata[k] for k in f.metadata}
+    assert left == {'language': 'spa', 'label': 'Tommy Gun Records', 'encoder': 'FLAC 1.2.1'}
+    no_label = _KeepFile(organization='Some Label')
+    m._tidy_track(_KeepTrack([no_label]), {}, {})
+    assert no_label.metadata['organization'] == 'Some Label'        # the only label info: kept

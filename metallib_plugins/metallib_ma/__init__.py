@@ -69,6 +69,7 @@ from .pressings import (
     from_ma,
     from_mb,
 )
+from .languages import iso639_3
 from .rules import (
     POSITION_TAGS,
     PRESSING_TAGS,
@@ -679,6 +680,10 @@ def _keep_file_value(track, tag):
 
 # A release-track or disc id belongs to one release: without that release's id it is meaningless.
 _RELEASE_ONLY_IDS = ('musicbrainz_trackid', 'musicbrainz_releasetrackid', 'musicbrainz_discid')
+# Scene / ripper tags removed from albums MetalLib manages (user): rip facts, an invalid
+# "1994-00-00" retail date, "Release Type = Normal" next to the real releasetype, a two-letter
+# duplicate of the language. ORGANIZATION too when it only repeats the label.
+JUNK_TAGS = ('rip date', 'ripping tool', 'retail date', 'release type', 'language 2-letter')
 
 
 def _performer_source(sources):
@@ -689,13 +694,25 @@ def _performer_source(sources):
 
 
 def _tidy_track(track, sources, user):
-    """Clean what a file may still carry from an earlier save (user: the first A.N.I.M.A.L. save):
+    """Clean what a file may still carry from an earlier save or the rip (user: A.N.I.M.A.L.):
+    - scene/ripper junk tags go (JUNK_TAGS; ORGANIZATION when a label is set);
+    - the language becomes the ISO 639-3 code MusicBrainz writes ("Spanish" -> "spa");
     - no release id in New Value -> no release-track / disc id either;
     - a source has performers -> New Value has exactly that source's performer entries; other
       performer entries already in the file go (the file's own stay only when no source has any).
     Tags the user picked a value for are left alone."""
     mds = [track.metadata] + [f.metadata for f in track.files]
     for md in mds:
+        for tag in JUNK_TAGS:
+            if tag in md and tag not in user:
+                del md[tag]
+        if 'organization' in md and md['label'] and 'organization' not in user:
+            del md['organization']
+        if 'language' in md and 'language' not in user:
+            values = list(md.getall('language'))
+            codes = [iso639_3(v) or v for v in values]         # "Spanish" -> "spa" (user)
+            if codes != values:
+                md['language'] = codes
         if not md['musicbrainz_albumid']:
             for tag in _RELEASE_ONLY_IDS:
                 if tag in md and tag not in user:
