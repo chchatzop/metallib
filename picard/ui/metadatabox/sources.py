@@ -65,10 +65,13 @@ def _values(md, tag):
     taken while Picard builds the track may not have yet: then the raw length is shown."""
     if md is None:
         return []
+    if tag == '~length':
+        # The raw length first: a snapshot may carry '~length' EMPTY (MB column with files matched).
+        if md.length:
+            return [format_time(md.length)]
+        return [v for v in md.getall(tag) if v]
     if tag in md:
         return list(md.getall(tag))
-    if tag == '~length' and md.length:
-        return [format_time(md.length)]
     return []
 
 

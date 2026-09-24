@@ -457,19 +457,28 @@ def on_mb_album(api, album, metadata, release_node):
     start_discogs(album)
     rg = (release_node.get('release-group') or {}).get('id')
     if rg:
-        _when_loaded(album, partial(list_mb_pressings, album, rg, release_node['id']))
+        _when_loaded(album, partial(list_mb_pressings, album, rg, release_node['id'], _release_seconds(release_node)))
 
 
-def list_mb_pressings(album, release_group_id, chosen_id):
+def _release_seconds(node):
+    return [round((t.get('length') or 0) / 1000) for m in node.get('media') or [] for t in m.get('tracks') or []]
+
+
+def list_mb_pressings(album, release_group_id, chosen_id, chosen_seconds=None):
     """Every release in the release group, for the Pressings panel."""
-    _api.tagger.mb_api.browse_releases(partial(_on_mb_pressings, album, chosen_id),
+    _api.tagger.mb_api.browse_releases(partial(_on_mb_pressings, album, chosen_id, chosen_seconds),
                                        **{'release-group': release_group_id, 'limit': '100'})
 
 
-def _on_mb_pressings(album, chosen_id, document=None, http=None, error=None):
+def _on_mb_pressings(album, chosen_id, chosen_seconds, document=None, http=None, error=None):
     if error or not document or album.id not in _api.tagger.albums:
         return
     pressings_panel.record(album, MUSICBRAINZ, from_mb(document.get('releases') or []), chosen_id)
+    if chosen_seconds is not None:
+        # The shown release's fit against the files -- "no lengths" when MusicBrainz has no durations
+        # for it (the MB column's Length row is then empty, user: A.N.I.M.A.L. 1994 US).
+        files = pressings_panel.local_info(album)['lengths']
+        pressings_panel.note(album, MUSICBRAINZ, chosen_id, len(chosen_seconds), judge(chosen_seconds, files))
 
 
 def _background_ma(band, title, local):
@@ -604,7 +613,7 @@ def _use_mb_release(album, node, fitted=True):
         pressings_panel.record(album, MUSICBRAINZ, from_mb([node]), node['id'])
         rg = (node.get('release-group') or {}).get('id')
         if rg:
-            list_mb_pressings(album, rg, node['id'])
+            list_mb_pressings(album, rg, node['id'], _release_seconds(node))
     _when_loaded(album, apply)
 
 
