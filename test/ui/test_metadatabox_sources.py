@@ -257,3 +257,17 @@ class TestCopyFromSourceColumns(PicardTestCase):
         box.setCurrentCell(0, 2)
         box._copy_single_item()
         self.assertEqual(box.clipboard.text, 'Iron Curtain')
+
+
+class TestSourceLength(PicardTestCase):
+    def test_length_row_falls_back_to_the_raw_length(self):
+        md = Metadata()
+        md.length = 339000                      # 5:39, no '~length' yet (snapshot taken early)
+        obj = MagicMock(spec=['source_metadata'])
+        obj.source_metadata = {'MusicBrainz': md}
+        self.assertEqual(sources.collect([obj], ['~length']), {'MusicBrainz': {'~length': ['5:39']}})
+
+    def test_length_differs_only_beyond_ten_seconds(self):
+        self.assertTrue(sources.length_differs(['6:35'], ['339000']))      # MA 6:35 vs file 5:39
+        self.assertFalse(sources.length_differs(['5:45'], ['339000']))     # 6 s: same track
+        self.assertFalse(sources.length_differs([], ['339000']))

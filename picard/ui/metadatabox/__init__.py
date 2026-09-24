@@ -846,8 +846,15 @@ class MetadataBox(QtWidgets.QTableWidget):
                 continue
             text = MULTI_VALUED_JOINER.join(values)
             item.setText(text)
-            # Highlight where this source disagrees with what will be saved.
-            differs = bool(text) and new_values is not None and values != new_values and not is_readonly
+            # Highlight where this source disagrees with what will be saved; a length when it is
+            # more than 10 s off the file's (the same limit the track placement uses).
+            if tag == '~length':
+                # New Value's length is one string of milliseconds here, not a list
+                length = None if new.status(tag).is_grouped else new[tag]
+                length = length if isinstance(length, (list, tuple)) else [length]
+                differs = bool(text) and length[0] and metallib_sources.length_differs(values, length)
+            else:
+                differs = bool(text) and new_values is not None and values != new_values and not is_readonly
             item.setForeground(changed if differs else normal)
             item.setToolTip(_("%s says: %s") % (name, text) if text else '')
 

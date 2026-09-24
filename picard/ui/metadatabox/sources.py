@@ -29,6 +29,7 @@ source a value was taken from is remembered in ``value_sources`` (tag -> source 
 
 from picard.file import File
 from picard.track import Track
+from picard.util import format_time
 
 
 DIFFERENT = object()        # the selected objects disagree for this source/tag
@@ -59,6 +60,41 @@ def source_tag_names(objects):
     return {t for t in tags if all(f.supports_tag(t) for f in files)}
 
 
+def _values(md, tag):
+    """A source's values for one row. The Length row reads '~length', which a source snapshot
+    taken while Picard builds the track may not have yet: then the raw length is shown."""
+    if md is None:
+        return []
+    if tag in md:
+        return list(md.getall(tag))
+    if tag == '~length' and md.length:
+        return [format_time(md.length)]
+    return []
+
+
+LENGTH_DIFFERS_S = 10
+
+
+def _seconds(text):
+    parts = str(text or '').strip().split(':')
+    try:
+        if len(parts) == 1:
+            return int(parts[0]) / 1000.0            # New Value: milliseconds
+        secs = 0
+        for p in parts:
+            secs = secs * 60 + int(p)
+        return secs                                  # a source: "m:ss" / "h:mm:ss"
+    except ValueError:
+        return None
+
+
+def length_differs(source_values, new_values):
+    """A source's length vs the file's, more than LENGTH_DIFFERS_S apart."""
+    a = _seconds(source_values[0]) if source_values else None
+    b = _seconds(new_values[0]) if new_values else None
+    return a is not None and b is not None and abs(a - b) > LENGTH_DIFFERS_S
+
+
 def collect(objects, tag_names):
     """-> {source name: {tag: list of values | DIFFERENT}} for the given rows.
 
@@ -77,8 +113,7 @@ def collect(objects, tag_names):
         for tag in tag_names:
             seen = None
             for obj in objects:
-                md = object_sources(obj).get(name)
-                values = list(md.getall(tag)) if md is not None and tag in md else []
+                values = _values(object_sources(obj).get(name), tag)
                 if seen is None:
                     seen = values
                 elif values != seen:
