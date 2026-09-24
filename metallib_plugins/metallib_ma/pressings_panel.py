@@ -289,10 +289,15 @@ class PressingsPanel(QtWidgets.QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         self.title = QtWidgets.QLabel('Pressings — select an album')
         layout.addWidget(self.title)
-        row = QtWidgets.QHBoxLayout()
+        # A splitter, so the borders between the three lists can be dragged (user).
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        self.splitter.setObjectName('metallib_pressings_lists')
+        self.splitter.setChildrenCollapsible(False)
         self.lists = {}
         for source in SOURCES:
-            col = QtWidgets.QVBoxLayout()
+            column = QtWidgets.QWidget()
+            col = QtWidgets.QVBoxLayout(column)
+            col.setContentsMargins(0, 0, 0, 0)
             head = QtWidgets.QLabel('<b>%s</b>' % source)
             col.addWidget(head)
             lst = QtWidgets.QListWidget()
@@ -300,8 +305,9 @@ class PressingsPanel(QtWidgets.QWidget):
             lst.itemClicked.connect(partial(self._clicked, source))
             col.addWidget(lst)
             self.lists[source] = lst
-            row.addLayout(col)
-        layout.addLayout(row)
+            column.setMinimumWidth(60)
+            self.splitter.addWidget(column)
+        layout.addWidget(self.splitter)
 
     def show_album(self, album):
         self.album = album
@@ -394,16 +400,54 @@ def install(api, tries=100):
     main = window.panel                       # splitter: [file browser, clusters pane, albums pane]
     left = main._views[0].parentWidget()
     index = main.indexOf(left)
+    sizes = main.sizes()                      # moving the pane resets its width: keep Picard's layout
     split = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
     split.setObjectName('metallib_pressings_splitter')
     split.setChildrenCollapsible(False)
     main.insertWidget(index, split)
     split.addWidget(left)
+    if any(sizes):
+        main.setSizes(sizes)
     _panel = PressingsPanel()
     split.addWidget(_panel)
     split.setStretchFactor(0, 3)
     split.setStretchFactor(1, 2)
     window.selection_updated.connect(_on_selection)
+    splitters = (split, _panel.splitter)
+    _restore_layout(splitters)
+    # Picard restores its own panes when the window is shown, possibly after this: once more then.
+    QtCore.QTimer.singleShot(0, partial(_restore_layout, splitters))
+    for s in splitters:
+        s.splitterMoved.connect(partial(_save_layout, splitters))
+
+
+# Picard saves/restores splitter positions only for splitters that exist when its window opens;
+# this panel is added a moment later, so it keeps its own: the panel's height and the widths of
+# the three lists, saved whenever a border is dragged, restored on start.
+LAYOUT_OPTION = 'pressings_layout'
+
+
+def _restore_layout(splitters):
+    import base64
+    import json
+    try:
+        saved = json.loads(_api.plugin_config[LAYOUT_OPTION] or '{}')
+    except (ValueError, KeyError, TypeError):
+        return
+    for s in splitters:
+        state = saved.get(s.objectName())
+        if state:
+            s.restoreState(QtCore.QByteArray(base64.b64decode(state)))
+
+
+def _save_layout(splitters, *args):
+    import base64
+    import json
+    try:
+        _api.plugin_config[LAYOUT_OPTION] = json.dumps(
+            {s.objectName(): base64.b64encode(bytes(s.saveState())).decode('ascii') for s in splitters})
+    except (KeyError, RuntimeError):
+        pass
 
 
 def uninstall():

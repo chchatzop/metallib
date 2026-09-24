@@ -849,6 +849,7 @@ def enable(api: PluginApi) -> None:
     _originals['album_artist_from_path'] = picard_cluster.album_artist_from_path
     picard_cluster.album_artist_from_path = _album_artist_from_path
     api.plugin_config.register_option('discogs_token', '')
+    api.plugin_config.register_option(pressings_panel.LAYOUT_OPTION, '')
     api.register_options_page(MetalLibOptionsPage)
     api.register_track_metadata_processor(on_track_built)
     api.register_album_metadata_processor(on_mb_album)
