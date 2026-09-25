@@ -325,7 +325,12 @@ class MetadataBox(QtWidgets.QTableWidget):
         self.setHorizontalHeaderLabels((_("Tag"), _("Original Value"), _("New Value")))
         self._source_names = []     # MetalLib: extra read-only columns, one per metadata source
         self._source_headers = []
+        # the source columns' widths and order by source name, kept across restarts
+        self._source_layout = {'widths': {}, 'order': []}
+        self._source_layout_busy = False
         self.cellDoubleClicked.connect(self._source_cell_double_clicked)
+        self.horizontalHeader().sectionResized.connect(self._source_section_resized)
+        self.horizontalHeader().sectionMoved.connect(self._source_section_moved)
         self.horizontalHeader().setStretchLastSection(True)
         self.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.horizontalHeader().setSectionsClickable(False)
@@ -826,6 +831,45 @@ class MetadataBox(QtWidgets.QTableWidget):
                 item.setToolTip(headers[i])
                 # Left-aligned: a narrow column cuts the end of the label, not both ends.
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+        self._apply_source_layout()
+
+    def _apply_source_layout(self):
+        """Give the source columns their remembered widths and order."""
+        header = self.horizontalHeader()
+        first = self.COLUMN_NEW + 1
+        self._source_layout_busy = True
+        try:
+            widths = self._source_layout['widths']
+            for i, name in enumerate(self._source_names):
+                if widths.get(name):
+                    header.resizeSection(first + i, widths[name])
+            order = self._source_layout['order']
+            logical = [first + i for i in range(len(self._source_names))]
+
+            def rank(column):
+                name = self._source_names[column - first]
+                return (order.index(name) if name in order else len(order), column)
+            slots = sorted(header.visualIndex(c) for c in logical)
+            for slot, column in zip(slots, sorted(logical, key=rank)):
+                header.moveSection(header.visualIndex(column), slot)
+        finally:
+            self._source_layout_busy = False
+
+    def _source_section_resized(self, column, old_size, new_size):
+        name = self._source_of_column(column)
+        header = self.horizontalHeader()
+        # the last column only stretches to fill the panel: that is not a width the user chose
+        if (name and not self._source_layout_busy and new_size > 0
+                and header.visualIndex(column) != header.count() - 1):
+            self._source_layout['widths'][name] = new_size
+
+    def _source_section_moved(self, column, old_visual, new_visual):
+        if self._source_layout_busy or not self._source_names:
+            return
+        header = self.horizontalHeader()
+        first = self.COLUMN_NEW + 1
+        shown = sorted(self._source_names, key=lambda n: header.visualIndex(first + self._source_names.index(n)))
+        self._source_layout['order'] = shown + [n for n in self._source_layout['order'] if n not in shown]
 
     def _source_of_column(self, column):
         index = column - (self.COLUMN_NEW + 1)
@@ -1293,9 +1337,22 @@ class MetadataBox(QtWidgets.QTableWidget):
         header = self.horizontalHeader()
         header.restoreState(state)
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
+        layout = config.persist['metadatabox_source_columns'] or {}
+        self._source_layout = {'widths': dict(layout.get('widths', {})), 'order': list(layout.get('order', []))}
+        header.setSectionsMovable(True)
 
     def save_state(self):
         config = get_config()
         header = self.horizontalHeader()
+        config.persist['metadatabox_source_columns'] = self._source_layout
+        # Picard's own columns only: the source columns come and go with the selection
+        names = self._source_names
+        labels = {n: h.partition('\n')[2] for n, h in zip(names, self._source_headers)}
+        self._source_layout_busy = True
+        self.setColumnCount(3)
+        self._source_names, self._source_headers = [], []
+        self._source_layout_busy = False
         state = header.saveState()
         config.persist['metadatabox_header_state'] = state
+        if names:
+            self._set_source_columns(names, labels)

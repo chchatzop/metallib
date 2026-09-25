@@ -52,6 +52,7 @@ USER_ATTR = 'metallib_extras_user'       # {path: {'tick': bool, 'stem': str}} o
 SAVE_ATTR = 'metallib_extras_save'       # {'pending': set, 'folders': set} while an album saves
 LAYOUT_OPTION = 'extras_layout'
 PREVIEW_OPTION = 'extras_preview_geometry'
+COLUMNS_OPTION = 'extras_columns'
 TEXT_LIMIT = 512 * 1024
 _panel = None
 _api = None
@@ -303,6 +304,10 @@ class ExtrasPanel(QtWidgets.QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(self.table.fontMetrics().height() + 4)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # column widths: the user's, kept across albums and restarts (user); sized to the
+        # contents only until the user has set them
+        self._widths = self._saved_widths()
+        self.table.horizontalHeader().sectionResized.connect(self._resized)
         self.table.itemChanged.connect(self._changed)
         self.table.currentCellChanged.connect(self._current)
         self.table.cellClicked.connect(self._clicked)
@@ -357,7 +362,7 @@ class ExtrasPanel(QtWidgets.QWidget):
                 if not e['tick']:
                     item.setForeground(grey)
                 self.table.setItem(r, c, item)
-        self.table.resizeColumnsToContents()
+        self._size_columns()
         moving = sum(1 for e in self.entries if e['tick'])
         trashed = sum(1 for e in self.entries if not e['tick'] and not _is_audio(e))
         where = source_folders(list(album.iterfiles()))
@@ -401,6 +406,37 @@ class ExtrasPanel(QtWidgets.QWidget):
         else:
             return
         QtCore.QTimer.singleShot(0, self.refresh)
+
+    @staticmethod
+    def _saved_widths():
+        import json
+        try:
+            saved = json.loads(_api.plugin_config[COLUMNS_OPTION] or '[]')
+        except (ValueError, KeyError, TypeError):
+            return None
+        return saved if isinstance(saved, list) and len(saved) == len(COLS) else None
+
+    def _size_columns(self):
+        self._filling_widths = True
+        try:
+            if self._widths:
+                for c, w in enumerate(self._widths):
+                    self.table.setColumnWidth(c, w)
+            else:
+                self.table.resizeColumnsToContents()
+        finally:
+            self._filling_widths = False
+
+    def _resized(self, column, old, new):
+        if getattr(self, '_filling_widths', False) or column == len(COLS) - 1:
+            return                            # the last column just fills the rest
+        header = self.table.horizontalHeader()
+        self._widths = [header.sectionSize(c) for c in range(len(COLS))]
+        import json
+        try:
+            _api.plugin_config[COLUMNS_OPTION] = json.dumps(self._widths)
+        except (KeyError, RuntimeError):
+            pass
 
     def _show(self, row):
         if 0 <= row < len(self.entries):

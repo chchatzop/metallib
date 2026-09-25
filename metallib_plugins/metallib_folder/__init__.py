@@ -215,6 +215,7 @@ def enable(api: PluginApi) -> None:
     from . import extras_panel
     api.plugin_config.register_option(extras_panel.LAYOUT_OPTION, '')
     api.plugin_config.register_option(extras_panel.PREVIEW_OPTION, '')
+    api.plugin_config.register_option(extras_panel.COLUMNS_OPTION, '')
     extras_panel.install(api, _log)
     api.register_file_pre_save_processor(extras_panel.on_file_saving)
     api.register_file_post_save_processor(extras_panel.on_file_saved)

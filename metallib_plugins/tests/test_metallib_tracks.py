@@ -586,3 +586,20 @@ def test_numbering_per_disc():
 def test_numbering_reads_n_of_total():
     from numbering import number
     assert (number('3/9'), number('03'), number(''), number('x')) == (3, 3, 0, 0)
+
+
+def test_last_free_track_by_title_when_the_source_length_is_off():
+    # Abort to Be Born "Misanformic": MA lists "Endless Lust and Greed" as 4:24, the file is 4:42.
+    tracks = [{'title': 'Song %d' % i, 'length': s('3:%02d' % (10 + i * 4)), 'number': str(i + 1)} for i in range(7)]
+    tracks.insert(4, {'title': 'Endless Lust and Greed', 'length': s('4:24'), 'number': '5'})
+    fs_ = files(*[(t['title'], '3:%02d' % (10 + i * 4), '') for i, t in enumerate(tracks) if i != 4])
+    fs_ += files(('Endless Lust And Greed', '4:42', '5'))
+    res = place(fs_, tracks, similarity2)
+    assert (res[-1]['track'], res[-1]['status']) == (4, ASSUMED)
+    assert '4:42 vs 4:24' in res[-1]['reason']
+
+
+def test_title_with_wrong_length_is_not_assumed_while_other_tracks_are_free_by_title():
+    tracks = [{'title': 'A', 'length': s('3:00'), 'number': '1'}, {'title': 'B', 'length': s('4:00'), 'number': '2'}]
+    res = place(files(('A', '3:00', ''), ('A', '5:00', '')), tracks, similarity2)
+    assert res[1]['status'] == UNPLACED

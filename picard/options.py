@@ -171,6 +171,7 @@ BoolOption('persist', 'show_plugin_install_warning', True)
 # picard/ui/metadatabox.py
 #
 Option('persist', 'metadatabox_header_state', QtCore.QByteArray())
+Option('persist', 'metadatabox_source_columns', {})   # MetalLib: source column widths/order by name
 BoolOption('persist', 'show_changes_first', False)
 
 # picard/ui/options/advanced.py

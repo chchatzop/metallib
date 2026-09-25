@@ -244,7 +244,11 @@ def place(files, tracks, similarity):
     # placed by title the release is confirmed; then leftover files that fit EXACTLY ONE free track by
     # length (within DUR_OK_S, one-to-one) go there, flagged ASSUMED (Picard's match colour shows the
     # title mismatch). Anything ambiguous stays unplaced.
+    # The mirror case: a leftover file whose title names exactly one free track, but the lengths
+    # disagree (a source typo like 4:24 for 4:42, or another version of the song) goes there too,
+    # flagged ASSUMED with both lengths in the reason.
     assumed = {}
+    why = {}
     if final and len(final) * 2 >= len(files):
         taken = {ti for ti, _ in final.values()}
         free = [i for i in range(len(tracks)) if i not in taken and i not in blocked]
@@ -254,6 +258,13 @@ def place(files, tracks, similarity):
             flen = files[fi].get('length') or 0
             fits[fi] = [ti for ti in free if flen and tracks[ti].get('length')
                         and abs(flen - tracks[ti]['length']) / 1000.0 <= DUR_OK_S]
+        for fi in left:
+            if not fits[fi]:
+                named = [ti for ti in free if title_similarity(
+                    similarity, files[fi].get('title'), tracks[ti].get('title')) >= TITLE_STRONG]
+                if len(named) == 1:
+                    fits[fi] = named
+                    why[fi] = 'title'
         picks = [fits[fi][0] for fi in left if len(fits[fi]) == 1]
         for fi in left:
             if len(fits[fi]) == 1 and picks.count(fits[fi][0]) == 1:
@@ -263,6 +274,12 @@ def place(files, tracks, similarity):
     for fi in range(len(files)):
         if fi in assumed:
             ti = assumed[fi]
+            if why.get(fi) == 'title':
+                out.append({'track': ti, 'status': ASSUMED,
+                            'reason': 'the only free track with this title (%s "%s"); the lengths differ: %s vs %s'
+                            % (_label(tracks[ti]), tracks[ti].get('title'), _fmt_len(files[fi].get('length') or 0),
+                               _fmt_len(tracks[ti].get('length') or 0))})
+                continue
             out.append({'track': ti, 'status': ASSUMED,
                         'reason': 'the only free track with this length (%s "%s"); the title "%s" does not match'
                         % (_label(tracks[ti]), tracks[ti].get('title'), files[fi].get('title'))})

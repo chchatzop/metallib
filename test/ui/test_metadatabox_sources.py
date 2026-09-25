@@ -105,11 +105,19 @@ class _Box(QtWidgets.QTableWidget):
     _set_source_columns = MetadataBox._set_source_columns
     _source_of_column = MetadataBox._source_of_column
     _fill_source_cells = MetadataBox._fill_source_cells
+    _apply_source_layout = MetadataBox._apply_source_layout
+    _source_section_resized = MetadataBox._source_section_resized
+    _source_section_moved = MetadataBox._source_section_moved
 
     def __init__(self):
         super().__init__(1, 3)
         self._source_names = []
         self._source_headers = []
+        self._source_layout = {'widths': {}, 'order': []}
+        self._source_layout_busy = False
+        self.horizontalHeader().sectionResized.connect(self._source_section_resized)
+        self.horizontalHeader().sectionMoved.connect(self._source_section_moved)
+        self.horizontalHeader().setSectionsMovable(True)
 
     def get_item(self, row, column):
         item = self.item(row, column)
@@ -172,6 +180,31 @@ class TestSourceColumns(PicardTestCase):
         box._set_source_columns(['MusicBrainz'])
         box._fill_source_cells(0, 'title', box.get_item, False)
         self.assertEqual(box.item(0, 3).text(), '(different values)')
+
+
+class TestSourceColumnLayout(PicardTestCase):
+    def test_widths_and_order_are_kept_by_source_name(self):
+        box = _Box()
+        box._set_source_columns(['MusicBrainz', 'Metal Archives', 'Discogs'])
+        header = box.horizontalHeader()
+        header.resizeSection(4, 333)                        # the user widens Metal Archives
+        header.moveSection(header.visualIndex(5), 3)        # and drags Discogs first
+        self.assertEqual(box._source_layout, {'widths': {'Metal Archives': 333},
+                                              'order': ['Discogs', 'MusicBrainz', 'Metal Archives']})
+        # another album: other sources, then the three again -> same widths and order
+        box._set_source_columns(['Metal Archives'])
+        box._set_source_columns(['MusicBrainz', 'Metal Archives', 'Discogs'])
+        header = box.horizontalHeader()
+        self.assertEqual(header.sectionSize(4), 333)
+        shown = sorted(range(3, 6), key=header.visualIndex)
+        self.assertEqual([box._source_of_column(c) for c in shown], ['Discogs', 'MusicBrainz', 'Metal Archives'])
+        # a fresh box that starts from the saved layout (a restart)
+        again = _Box()
+        again._source_layout = box._source_layout
+        again._set_source_columns(['MusicBrainz', 'Metal Archives'])
+        header = again.horizontalHeader()
+        self.assertEqual(header.sectionSize(4), 333)
+        self.assertEqual(again._source_layout['widths'], {'Metal Archives': 333})
 
 
 class TestSourceRowsStay(PicardTestCase):
