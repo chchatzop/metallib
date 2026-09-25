@@ -209,6 +209,29 @@ class CatnumTag(PicardTestCase):
         self.assertEqual(mod.catnum_for(F(r'C:\in\Band-Album-WEB-2023-GRP', media='CD', catalognumber='X1')), 'WEB')
         self.assertEqual(mod.catnum_for(F(r'C:\in\Band - Album')), '')                         # nothing known
 
+    @pytest.mark.skipif(sys.platform != 'win32', reason='checks Windows paths')
+    def test_catnum_in_new_value_and_a_typed_one_stays(self):
+        # CATNUM is shown before saving (user) and one typed by hand is never replaced
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('picard.plugins.metallib_naming_test2', PLUGIN_DIR / '__init__.py',
+                                                      submodule_search_locations=[str(PLUGIN_DIR)])
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+
+        class F:
+            def __init__(self, **tags):
+                self.filename = r'C:\in\A.O.K.-Im_Geiste_Schlicht-DE-CD-FLAC-2011-DEMONSKULL\01.flac'
+                self.parent_item = None
+                self.metadata = Metadata(**tags)
+        f = F(media='CD', catalognumber='burnout016')
+        self.assertTrue(mod.update_catnum(f))
+        self.assertEqual(f.metadata['catnum'], 'burnout016 CD')
+        mine = F(media='CD', catalognumber='burnout016', catnum='MY OWN')
+        mine.value_sources = {'catnum': 'user'}
+        self.assertFalse(mod.update_catnum(mine))
+        self.assertEqual(mine.metadata['catnum'], 'MY OWN')
+
 
 
 class FolderEndingInDots(LayoutScript):

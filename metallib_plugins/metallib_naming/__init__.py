@@ -86,14 +86,37 @@ def _file_album_media(file):
     return file.metadata['media']
 
 
-def on_file_saving(api, file):
+def _typed_by_user(file):
+    # a CATNUM set by hand in the tag panel (metadatabox sources.note_user_edit) is never replaced
+    track = file.parent_item if isinstance(file.parent_item, Track) else None
+    return any('catnum' in (getattr(o, 'value_sources', None) or {}) for o in (file, track) if o is not None)
+
+
+def update_catnum(file):
+    """CATNUM in New Value, so it can be seen (and changed) before saving -- it used to be written
+    only at the moment of saving (user). Called when a file joins an album track, after the source
+    rules changed the album's values (metallib_ma) and once more before saving."""
+    if _typed_by_user(file):
+        return False
     value = catnum_for(file)
-    if value:                                   # nothing known: keep what the file has
+    if value and file.metadata['catnum'] != value:     # nothing known: keep what the file has
         file.metadata['catnum'] = value
+        return True
+    return False
+
+
+def on_file_added(api, track, file):
+    update_catnum(file)
+
+
+def on_file_saving(api, file):
+    update_catnum(file)
 
 
 def enable(api: PluginApi) -> None:
     api.register_file_pre_save_processor(on_file_saving)
+    api.register_file_post_addition_to_track_processor(on_file_added)
+    api.tagger.metallib_update_catnum = update_catnum      # metallib_ma calls it after its rules
     for func, name, doc in (
         (clean, 'clean',
          "`$clean(text[,title])`\n\nA name part as the MetalLib library writes it: plain ASCII (Cyrillic and "

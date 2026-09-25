@@ -815,6 +815,11 @@ def _tidy_track(track, sources, user):
                     del md[tag]
         make_plain(md, user)
         _set_band_country(md, sources, user, track.metadata, orig)
+    # CATNUM follows the catalog number and media just set (the MetalLib Naming plugin's rule)
+    update_catnum = getattr(getattr(_api, 'tagger', None), 'metallib_update_catnum', None)
+    if update_catnum is not None:
+        for f in track.files:
+            update_catnum(f)
 
 
 def on_file_saving(api, file):
