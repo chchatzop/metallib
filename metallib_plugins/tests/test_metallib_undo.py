@@ -219,6 +219,29 @@ def test_batches_group_by_time(tmp_path):
     j.close()
 
 
+
+def test_an_older_save_waits_for_the_newer_one(tmp_path):
+    # Audit part 2 M1: undoing save 1 while save 2 of the same file is still in the journal lost
+    # save 2's changes, and undoing save 2 afterwards brought save 1 back.
+    clock = [1000.0]
+    j = undo_store.UndoJournal(str(tmp_path / 'j'), clock=lambda: clock[0])
+    p = tmp_path / 'song.bin'
+    p.write_bytes(b'original')
+    e1 = j.record(str(p))
+    p.write_bytes(b'first save')
+    j.saved(e1, str(p))
+    clock[0] += 100
+    e2 = j.record(str(p))
+    p.write_bytes(b'second save')
+    j.saved(e2, str(p))
+    (b2, _, _), (b1, _, _) = j.batches()
+    refused = j.undo_batch(b1)
+    assert not refused[0][1] and 'undo that save first' in refused[0][2]
+    assert p.read_bytes() == b'second save'
+    assert all(ok for _, ok, _ in j.undo_batch(b2)) and p.read_bytes() == b'first save'
+    assert all(ok for _, ok, _ in j.undo_batch(b1)) and p.read_bytes() == b'original'
+    j.close()
+
 # --- The plugin's wrappers around Picard's real File.save() ------------------------------------
 
 def _load_undo_plugin():

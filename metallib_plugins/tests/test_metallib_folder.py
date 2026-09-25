@@ -110,3 +110,23 @@ def test_cover_name_follows_the_track_names(tmp_path):
     img = [e for e in fs.scan([str(d)], [str(t) for t in tracks], 'Aborym', 'Fire Walk with Us')
            if e['verdict'] == fs.RENAME][0]
     assert os.path.basename(img['target']) == 'Aborym - Fire Walk with Us [SC 022-2 CD] - 00 - Front.jpg'
+
+
+def test_any_clean_up_of_this_album_can_be_undone(tmp_path, monkeypatch):
+    # Audit part 2 M5: a batch that could not be fully undone kept coming back as "the last one",
+    # hiding the older ones; and the undo took whichever album's clean-up was last.
+    a, b = tmp_path / 'A', tmp_path / 'B'
+    a.mkdir()
+    b.mkdir()
+    for p in (a / 'a.nfo', a / 'b.nfo', b / 'c.nfo'):
+        p.write_text('x')
+    log = fs.ActionLog(str(tmp_path / 'log.jsonl'))
+    monkeypatch.setattr(fs, 'trash_root', lambda path: str(tmp_path))
+    fs.move_to_trash(str(a / 'a.nfo'), log, '20260926-100000-0001')
+    fs.move_to_trash(str(a / 'b.nfo'), log, '20260926-110000-0002')
+    fs.move_to_trash(str(b / 'c.nfo'), log, '20260926-120000-0003')
+    assert [bt for bt, _ in log.batches([str(a)])] == ['20260926-110000-0002', '20260926-100000-0001']
+    (a / 'b.nfo').write_text('taken again')                          # the newer one cannot come back
+    assert not log.undo('20260926-110000-0002')[0][0]
+    assert log.undo('20260926-100000-0001') == [(True, 'a.nfo')]      # the older one still can
+    assert (a / 'a.nfo').exists() and not (b / 'c.nfo').exists()      # album B untouched

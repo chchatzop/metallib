@@ -3,7 +3,7 @@
 #   $folder()                      for a custom column: album / cluster rows show "clean" or
 #                                  "2 junk, 1 check, 1 rename" for their folder(s)
 #   right-click album / cluster -> "Folder contents..."   every non-album file with a verdict;
-#                                  tick and "Move to trash" / apply the cover rename; "Undo last clean-up"
+#                                  tick and "Move to trash" / apply the cover rename; "Undo a clean-up..."
 #   the Extra files panel          a row above the tag panel: tick / rename / preview the album's
 #                                  extra files; they move (or go to the trash) when it is saved --
 #                                  see extras_panel.py
@@ -129,7 +129,7 @@ class FolderDialog(QtWidgets.QDialog):
         buttons = QtWidgets.QHBoxLayout()
         self.trash_btn = QtWidgets.QPushButton('Move ticked to trash')
         self.rename_btn = QtWidgets.QPushButton('Apply ticked renames')
-        self.undo_btn = QtWidgets.QPushButton('Undo last clean-up')
+        self.undo_btn = QtWidgets.QPushButton('Undo a clean-up...')
         close = QtWidgets.QPushButton('Close')
         for b in (self.trash_btn, self.rename_btn, self.undo_btn):
             buttons.addWidget(b)
@@ -166,7 +166,7 @@ class FolderDialog(QtWidgets.QDialog):
         self.info.setText('Folder(s): %s<br><b>%s</b>. Junk is moved to <i>.metallib_trash</i> at the root of its drive '
                           '(never deleted) and every action can be undone here.'
                           % ('<br>'.join(sorted(self.folders)), 'Nothing to clean up' if n == 'clean' else n))
-        self.undo_btn.setEnabled(_log().last_batch() is not None)
+        self.undo_btn.setEnabled(bool(_log().batches(self.folders)))
 
     def _ticked(self, verdicts):
         return [e for r, e in enumerate(self.entries)
@@ -196,14 +196,32 @@ class FolderDialog(QtWidgets.QDialog):
         self._reload()
 
     def _undo(self):
+        # this album's clean-ups only (audit part 2 M5: it undid whichever album's was last), newest
+        # first; any of them can be picked
         log = _log()
-        batch = log.last_batch()
-        if batch is None:
+        batches = log.batches(self.folders)
+        if not batches:
             return
+        labels = ['%s — %d file(s): %s' % (_when(b), len(rows), ', '.join(
+            os.path.basename(r['src']) for r in rows[:3]) + (' ...' if len(rows) > 3 else ''))
+            for b, rows in batches]
+        label, ok = QtWidgets.QInputDialog.getItem(self, 'MetalLib', 'Put back the files of which clean-up?',
+                                                   labels, 0, False)
+        if not ok:
+            return
+        batch = batches[labels.index(label)][0]
         bad = [msg for ok, msg in log.undo(batch) if not ok]
         if bad:
             QtWidgets.QMessageBox.warning(self, 'MetalLib', 'Not restored:\n' + '\n'.join(bad[:20]))
         self._reload()
+
+
+def _when(batch):
+    # batch ids start with the time: 20260926-143015-ab12
+    try:
+        return '%s-%s-%s %s:%s' % (batch[:4], batch[4:6], batch[6:8], batch[9:11], batch[11:13])
+    except (TypeError, IndexError):
+        return str(batch)
 
 
 def disable() -> None:

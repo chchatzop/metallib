@@ -180,6 +180,13 @@ class UndoJournal:
             "WHERE batch=? AND state='saved' ORDER BY id DESC", (batch,)).fetchall()
         results = []
         for eid, old, new, kind, payload, copy_path, listing in rows:
+            later = self._saved_again(eid, new or old)
+            if later is not None:
+                # Undoing this save now would wipe the later one's changes, and undoing that one
+                # afterwards would bring this one's back (audit part 2 M1): newest first.
+                results.append((eid, False, '%s was saved again later (%s) -- undo that save first'
+                                % (os.path.basename(new or old), later)))
+                continue
             try:
                 msg = self._undo_one(old, new, kind, json.loads(payload), copy_path, json.loads(listing))
                 with self._lock:
@@ -189,6 +196,15 @@ class UndoJournal:
             except Exception as e:
                 results.append((eid, False, '%s: %s' % (os.path.basename(new or old), e)))
         return results
+
+    def _saved_again(self, eid, path):
+        """The batch of a later, not undone save of the file this entry left at `path`, or None."""
+        key = os.path.normcase(os.path.normpath(path))
+        for batch, later_old in self._db.execute(
+                "SELECT batch, old_path FROM saves WHERE id>? AND state='saved' ORDER BY id", (eid,)):
+            if later_old and os.path.normcase(os.path.normpath(later_old)) == key:
+                return batch
+        return None
 
     @staticmethod
     def _undo_one(old, new, kind, payload, copy_path, listing):

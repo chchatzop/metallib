@@ -185,6 +185,23 @@ class ActionLog:
         rows = [r for r in self._read() if not r.get('undone')]
         return rows[-1]['batch'] if rows else None
 
+    def batches(self, folders=None):
+        """[(batch, [rows not undone])], newest first -- only batches that touched `folders` (a file
+        moved from or into one of them) when given. Any batch can be picked, so one that cannot be
+        fully undone (a name taken again) never hides the older ones (audit part 2 M5)."""
+        keys = [os.path.normcase(os.path.normpath(f)) for f in folders or ()]
+
+        def inside(path):
+            d = os.path.normcase(os.path.normpath(os.path.dirname(path or '')))
+            return any(d == k or d.startswith(k + os.sep) for k in keys)
+        by = {}
+        for r in self._read():
+            if not r.get('undone'):
+                by.setdefault(r['batch'], []).append(r)
+        out = [(b, rows) for b, rows in by.items()
+               if not keys or any(inside(r['src']) or inside(r['dst']) for r in rows)]
+        return sorted(out, key=lambda br: br[0], reverse=True)
+
     def undo(self, batch):
         """Move every file of `batch` back (never over an existing file). -> [(ok, message)]."""
         rows = self._read()
@@ -200,9 +217,13 @@ class ActionLog:
                 results.append((True, os.path.basename(r['src'])))
             except OSError as e:
                 results.append((False, '%s: %s' % (os.path.basename(r['src']), e)))
-        with open(self.path, 'w', encoding='utf-8') as f:
+        # atomically: a crash mid-write must not lose the log (it is the only record of what is in
+        # .metallib_trash and where it came from)
+        tmp = self.path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
             for r in rows:
                 f.write(json.dumps(r) + '\n')
+        os.replace(tmp, self.path)
         return results
 
 

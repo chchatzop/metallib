@@ -11,7 +11,7 @@
 # "<prefix> - 00 - Front.jpg" when saved. Picard's own "move additional files" is replaced for album files:
 # after the album's audio is saved, ticked files move under their new names, the rest goes to
 # .metallib_trash (never audio), empty source folders are removed -- all logged, undoable from
-# "Folder contents..." -> "Undo last clean-up". Choices are not saved (like the pressing lists).
+# "Folder contents..." -> "Undo a clean-up...". Choices are not saved (like the pressing lists).
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -576,7 +576,7 @@ def run_extras(album, folders, saved):
         text = 'extra files: %d moved, %d to trash' % (len(done['moved']), len(done['trashed']))
         if done['errors']:
             text += ', %d left alone (%s)' % (len(done['errors']), done['errors'][0])
-        msg.append(text + ' — undo: Folder contents... → Undo last clean-up')
+        msg.append(text + ' — undo: right-click the album → Folder contents... → Undo a clean-up')
     try:
         written = write_front_file(album, dest, prefix, multi)
     except OSError as e:
