@@ -6,13 +6,15 @@
 # ended up (rename/move), so undo puts the old tags back and moves the file home again.
 # Undo never deletes anything.
 #
-# Picard 3.0 has no plugin hook that can veto a save, so this wraps File.save and
-# File._saving_finished; disable() restores both.
+# Picard 3.0 has no plugin hook that can veto a save, so this wraps File._save_and_rename (the
+# save itself, in Picard's save thread -- so snapshots never freeze the window, audit part 2 M6)
+# and File._saving_finished; disable() restores both.
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 from functools import partial
 import os
+import threading
 import time
 
 from PyQt6 import QtWidgets
@@ -30,29 +32,36 @@ from .undo_store import UndoJournal
 _ATTR = '_metallib_undo_entry'
 _api = None
 _journal = None
+_journal_lock = threading.Lock()
 _originals = {}
 
 
 def journal():
     global _journal
-    if _journal is None:
-        from picard.const.appdirs import plugin_folder
-        _journal = UndoJournal(os.path.join(os.path.dirname(os.path.abspath(plugin_folder())), 'metallib', 'undo'))
-    return _journal
+    with _journal_lock:                 # first used from the save thread(s)
+        if _journal is None:
+            from picard.const.appdirs import plugin_folder
+            _journal = UndoJournal(os.path.join(os.path.dirname(os.path.abspath(plugin_folder())), 'metallib',
+                                                'undo'))
+            try:
+                _journal.prune()        # old saves go (audit part 2 M6: the journal only ever grew)
+            except Exception:
+                _api.logger.exception("undo journal: pruning failed")
+        return _journal
 
 
-def _save(self):
-    try:
-        setattr(self, _ATTR, journal().record(self.filename))
-    except Exception as e:
-        # No snapshot, no save: the user's rule is that every write must be reversible.
-        _api.logger.error("not saving %r: undo snapshot failed: %s", self.filename, e)
-        self.error_append('MetalLib: not saved, because its current tags could not be backed up '
-                          'for undo (%s)' % e)
-        self.state = File.State.ERROR
-        self.update()
-        return
-    return _originals['save'](self)
+def _save_and_rename(self, old_filename, metadata):
+    # Runs in Picard's save thread. Picard itself skips removed files and saves while quitting.
+    if self.state != File.State.REMOVED and not self.tagger.stopping:
+        try:
+            setattr(self, _ATTR, journal().record(old_filename))
+        except Exception as e:
+            # No snapshot, no save: the user's rule is that every write must be reversible. The
+            # error ends up on the file (Picard's _saving_finished), which is then not written.
+            _api.logger.error("not saving %r: undo snapshot failed: %s", old_filename, e)
+            raise OSError('MetalLib: not saved, because its current tags could not be backed up '
+                          'for undo (%s)' % e) from e
+    return _originals['save_and_rename'](self, old_filename, metadata)
 
 
 def _saving_finished(self, result=None, error=None):
@@ -153,15 +162,15 @@ def _pick(parent, title, headers, rows):
 def enable(api: PluginApi) -> None:
     global _api
     _api = api
-    _originals['save'] = File.save
+    _originals['save_and_rename'] = File._save_and_rename
     _originals['saving_finished'] = File._saving_finished
-    File.save = _save
+    File._save_and_rename = _save_and_rename
     File._saving_finished = _saving_finished
     api.register_tools_menu_action(UndoSave)
 
 
 def disable() -> None:
-    if 'save' in _originals:
-        File.save = _originals['save']
+    if 'save_and_rename' in _originals:
+        File._save_and_rename = _originals['save_and_rename']
     if 'saving_finished' in _originals:
         File._saving_finished = _originals['saving_finished']

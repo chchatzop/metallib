@@ -242,6 +242,44 @@ def test_an_older_save_waits_for_the_newer_one(tmp_path):
     assert all(ok for _, ok, _ in j.undo_batch(b1)) and p.read_bytes() == b'original'
     j.close()
 
+
+@pytest.mark.skipif(not FFMPEG, reason='needs ffmpeg')
+def test_the_same_cover_is_stored_once_and_old_saves_are_pruned(tmp_path):
+    # Audit part 2 M6: every track's embedded cover was stored again (base64) on every save, and
+    # nothing was ever removed.
+    from mutagen.flac import FLAC
+    clock = [1000.0]
+    j = undo_store.UndoJournal(str(tmp_path / 'j'), clock=lambda: clock[0])
+    paths = []
+    for i in range(3):
+        p = _make_audio(str(tmp_path), 't%d.flac' % i)
+        _tag_flac(p)
+        paths.append(p)
+    for p in paths:
+        j.saved(j.record(p), p)
+    assert j._db.execute('SELECT COUNT(*) FROM blobs').fetchone()[0] == 1
+    for p in paths:
+        f = FLAC(p)
+        f.clear_pictures()
+        f.save()
+    (batch, _, _), = j.batches()
+    assert all(ok for _, ok, _ in j.undo_batch(batch))
+    assert all(len(FLAC(p).pictures) == 1 for p in paths)                 # the cover came back
+    clock[0] += 200 * 86400
+    j.saved(j.record(paths[0]), paths[0])                                 # a new save, long after
+    assert j.prune(keep_days=90, keep_batches=1) == 3                     # the old batch goes
+    assert j._db.execute('SELECT COUNT(*) FROM saves').fetchone()[0] == 1
+    assert j._db.execute('SELECT COUNT(*) FROM blobs').fetchone()[0] == 1  # still used by the new one
+    j.close()
+
+
+def test_journals_from_before_still_undo(tmp_path):
+    # pictures stored inline (the old format) are still restored
+    j = undo_store.UndoJournal(str(tmp_path / 'j'))
+    payload = {'comments': [], 'pictures': ['QUJD']}
+    assert j._load_pictures(dict(payload))['pictures'] == ['QUJD']
+    j.close()
+
 # --- The plugin's wrappers around Picard's real File.save() ------------------------------------
 
 def _load_undo_plugin():
@@ -265,13 +303,22 @@ class TestUndoPluginWrapsPicardSave(TestUndoAgainstPicardSaves):
         self.plugin._api = types.SimpleNamespace(logger=MagicMock())
         self.plugin._journal = undo_store.UndoJournal(os.path.join(self.dir, 'journal'))
         self.addCleanup(self.plugin._journal.close)
-        self.plugin._originals.update(save=File.save, saving_finished=File._saving_finished)
-        wrap = patch.object(File, '_saving_finished', self.plugin._saving_finished)   # as enable() does
-        wrap.start()
-        self.addCleanup(wrap.stop)
+        self.plugin._originals.update(save_and_rename=File._save_and_rename,
+                                      saving_finished=File._saving_finished)
+        for name, func in (('_saving_finished', self.plugin._saving_finished),          # as enable() does
+                           ('_save_and_rename', self.plugin._save_and_rename)):
+            wrap = patch.object(File, name, func)
+            wrap.start()
+            self.addCleanup(wrap.stop)
         # Run Picard's save task synchronously, callback included.
-        sync = patch('picard.file.thread.run_task',
-                     side_effect=lambda func, next_func=None, **kw: next_func(result=func()) if next_func else func())
+        def run_now(func, next_func=None, **kw):
+            # like Picard's run_task: an exception in the task reaches the callback as `error`
+            try:
+                result = func()
+            except Exception as e:
+                return next_func(error=e) if next_func else None
+            return next_func(result=result) if next_func else result
+        sync = patch('picard.file.thread.run_task', side_effect=run_now)
         sync.start()
         self.addCleanup(sync.stop)
 
@@ -289,7 +336,7 @@ class TestUndoPluginWrapsPicardSave(TestUndoAgainstPicardSaves):
         path = _make_audio(self.dir, 's.flac')
         _tag_flac(path)
         f = self._file(path)
-        self.plugin._save(f)                                   # plugin's File.save
+        f.save()                                               # Picard's save, plugin inside
         self.assertEqual(FLAC(path)['TITLE'], ['New Title'])
         (batch, _, entries), = self.plugin._journal.batches()
         self.assertEqual(entries[0]['new_path'], path)
@@ -302,7 +349,7 @@ class TestUndoPluginWrapsPicardSave(TestUndoAgainstPicardSaves):
         _tag_flac(path)
         f = self._file(path)
         with patch.object(self.plugin._journal, 'record', side_effect=OSError('share offline')):
-            self.plugin._save(f)
+            f.save()
         self.assertEqual(FLAC(path)['TITLE'], ['Original Title'])     # untouched
         self.assertEqual(f.state, f.State.ERROR)
         self.assertIn('could not be backed up', f.errors[0])

@@ -14,6 +14,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import base64
+import hashlib
 import json
 import os
 import shutil
@@ -113,6 +114,10 @@ def restore(path, kind, payload, copy_path=None):
 # Journal
 # ------------------------------------------------------------------------------------------------
 
+KEEP_DAYS = 90         # saves younger than this are always kept...
+KEEP_BATCHES = 500     # ...and so are the newest this many batches
+
+
 class UndoJournal:
     def __init__(self, folder, clock=time.time):
         self.folder = folder
@@ -124,7 +129,60 @@ class UndoJournal:
             id INTEGER PRIMARY KEY AUTOINCREMENT, batch INTEGER, at REAL, old_path TEXT,
             new_path TEXT, kind TEXT, payload TEXT, copy_path TEXT, dir_listing TEXT,
             state TEXT DEFAULT 'pending')''')
+        # Embedded pictures, stored ONCE however many tracks carry the same cover (audit part 2 M6:
+        # a 2 MB scan was stored again, base64, for every track of every save).
+        self._db.execute('CREATE TABLE IF NOT EXISTS blobs (hash TEXT PRIMARY KEY, data BLOB)')
         self._db.commit()
+
+    def _store_pictures(self, payload):
+        pics = []
+        for data in payload.get('pictures') or []:
+            raw = base64.b64decode(data)
+            digest = hashlib.sha1(raw).hexdigest()
+            self._db.execute('INSERT OR IGNORE INTO blobs VALUES (?,?)', (digest, raw))
+            pics.append({'blob': digest})
+        payload['pictures'] = pics
+        return payload
+
+    def _load_pictures(self, payload):
+        pics = []
+        for p in payload.get('pictures') or []:
+            if isinstance(p, dict):
+                row = self._db.execute('SELECT data FROM blobs WHERE hash=?', (p['blob'],)).fetchone()
+                if row is None:
+                    raise ValueError('a picture of this save is missing from the undo journal')
+                pics.append(base64.b64encode(row[0]).decode('ascii'))
+            else:
+                pics.append(p)          # journals written before: the picture itself
+        payload['pictures'] = pics
+        return payload
+
+    def prune(self, keep_days=KEEP_DAYS, keep_batches=KEEP_BATCHES):
+        """Forget saves older than `keep_days` beyond the newest `keep_batches` batches (the
+        backups of files copied whole go too, and pictures no save needs any more)."""
+        with self._lock:
+            batches = [b for b, in self._db.execute('SELECT DISTINCT batch FROM saves ORDER BY batch DESC')]
+            keep = set(batches[:keep_batches])
+            cutoff = self._clock() - keep_days * 86400
+            old = [(eid, cp) for eid, batch, at, cp in self._db.execute(
+                'SELECT id, batch, at, copy_path FROM saves') if batch not in keep and at < cutoff]
+            for eid, cp in old:
+                if cp:
+                    try:
+                        os.remove(cp)
+                    except OSError:
+                        pass
+                self._db.execute('DELETE FROM saves WHERE id=?', (eid,))
+            used = set()
+            for payload, in self._db.execute("SELECT payload FROM saves WHERE kind='flac'"):
+                used.update(p['blob'] for p in (json.loads(payload).get('pictures') or []) if isinstance(p, dict))
+            for digest, in list(self._db.execute('SELECT hash FROM blobs')):
+                if digest not in used:
+                    self._db.execute('DELETE FROM blobs WHERE hash=?', (digest,))
+            self._db.commit()
+            if old:
+                self._db.execute('VACUUM')
+            return len(old)
 
     def close(self):
         self._db.close()
@@ -144,6 +202,8 @@ class UndoJournal:
         except OSError:
             listing = []
         with self._lock:
+            if kind == 'flac':
+                payload = self._store_pictures(payload)
             batch = self._batch()
             cur = self._db.execute(
                 'INSERT INTO saves (batch, at, old_path, new_path, kind, payload, dir_listing) '
@@ -188,7 +248,10 @@ class UndoJournal:
                                 % (os.path.basename(new or old), later)))
                 continue
             try:
-                msg = self._undo_one(old, new, kind, json.loads(payload), copy_path, json.loads(listing))
+                data = json.loads(payload)
+                if kind == 'flac':
+                    data = self._load_pictures(data)
+                msg = self._undo_one(old, new, kind, data, copy_path, json.loads(listing))
                 with self._lock:
                     self._db.execute("UPDATE saves SET state='undone' WHERE id=?", (eid,))
                     self._db.commit()
