@@ -154,3 +154,45 @@ def test_404_is_not_found(tmp_path):
     c, _, _ = _client(tmp_path, [FakeResp(404, '')])
     with pytest.raises(m.MANotFound):
         c.fetch('https://ma/gone')
+
+
+def test_no_new_requests_once_metallib_closes(tmp_path):
+    # Audit part 1 M1: quitting waited for every queued Metal Archives page.
+    import threading
+    page = 'x' * 3000
+    c, session, _ = _client(tmp_path, [FakeResp(200, page)])
+    c.stop = threading.Event()
+    c.fetch('https://ma/a')
+    c.stop.set()
+    assert c.fetch('https://ma/a') == page              # the cache still answers
+    with pytest.raises(m.MAError):
+        c.fetch('https://ma/b')                          # no new request
+    assert session.calls == ['https://ma/a']
+
+
+def test_source_lookups_do_not_block_picards_thread_pool():
+    # Audit part 1 M1: slow scraping tasks on Picard's shared pool delayed file loading. They now run
+    # on their own one-thread pool: a task on the shared pool starts at once.
+    import time
+    from PyQt6 import QtCore
+    from picard.util import thread
+    pools = sys.modules[[k for k in sys.modules if k.endswith('metallib_ma_test.pools')][0]] \
+        if any(k.endswith('metallib_ma_test.pools') for k in sys.modules) else None
+    if pools is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('mltest_pools', Path(__file__).resolve().parents[1]
+                                                      / 'metallib_ma' / 'pools.py')
+        pools = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pools)
+    QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+    shared = QtCore.QThreadPool()
+    shared.setMaxThreadCount(3)
+    for _ in range(6):
+        pools.run(pools.MA, lambda: time.sleep(0.3), None)
+    started = []
+    t0 = time.time()
+    thread.run_task(lambda: started.append(time.time() - t0), None, thread_pool=shared)
+    shared.waitForDone(5000)
+    assert started and started[0] < 0.2
+    pools.shutdown(timeout_ms=5000)                      # drops the queued ones
+    assert time.time() - t0 < 1.5

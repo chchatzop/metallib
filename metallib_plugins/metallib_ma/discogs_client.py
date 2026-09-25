@@ -29,6 +29,7 @@ class DiscogsError(Exception):
 
 class DiscogsClient:
     def __init__(self, cache_path, token_getter, opener=None, sleep=time.sleep, clock=time.time):
+        self.stop = None                # a threading.Event: set -> no new requests (quitting)
         self._token = token_getter
         self._open = opener or urllib.request.urlopen
         self._sleep, self._clock = sleep, clock
@@ -50,6 +51,8 @@ class DiscogsClient:
             token = (self._token() or '').strip()
             if not token:
                 raise DiscogsError('no Discogs token set (MetalLib options)')
+            if self.stop is not None and self.stop.is_set():
+                raise DiscogsError('MetalLib is closing')
             wait = self._last + MIN_INTERVAL - self._clock()
             if wait > 0:
                 self._sleep(wait)

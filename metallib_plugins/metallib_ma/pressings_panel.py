@@ -19,8 +19,8 @@ from picard.plugin3.api import (
     File,
     Track,
 )
-from picard.util import thread
 
+from . import pools
 from .pressings import (
     better_pick,
     judge,
@@ -200,7 +200,7 @@ def _start_fill(album, source):
         return
     st['filling'] = True
     lengths = local_info(album)['lengths']
-    thread.run_task(partial(_fill, source, todo, lengths), partial(_filled, album, source))
+    pools.run(source, partial(_fill, source, todo, lengths), partial(_filled, album, source))
 
 
 def _fill(source, ids, lengths):
@@ -246,10 +246,10 @@ def load(album, source, cid):
     from . import _status
     _status('loading %s pressing %s...' % (source, cid))
     if source == 'Metal Archives':
-        thread.run_task(partial(_fetch_ma, cid), partial(_loaded_ma, album, cid))
+        pools.run(pools.MA, partial(_fetch_ma, cid), partial(_loaded_ma, album, cid), pools.USER)
     elif source == 'Discogs':
         from . import discogs
-        thread.run_task(partial(discogs().release, cid), partial(_loaded_dg, album, cid))
+        pools.run(pools.DISCOGS, partial(discogs().release, cid), partial(_loaded_dg, album, cid), pools.USER)
     else:
         from . import MB_INC
         _api.tagger.mb_api.get_release_by_id(cid, partial(_loaded_mb, album, cid), inc=MB_INC)

@@ -17,6 +17,7 @@
 from functools import partial
 import os
 import re
+import threading
 
 from PyQt6 import QtWidgets
 
@@ -31,7 +32,6 @@ from picard.plugin3.api import (
     OptionsPage,
     PluginApi,
 )
-from picard.util import thread
 
 from .ma_client import (
     MAClient,
@@ -62,7 +62,10 @@ from .discogs_release import (
     flat_tracklist,
 )
 from .folder_parse import folder_hints
-from . import pressings_panel
+from . import (
+    pools,
+    pressings_panel,
+)
 from .pressings import (
     candidate,
     judge,
@@ -99,7 +102,15 @@ _client = None
 _originals = {}
 
 
+_client_lock = threading.Lock()
+
+
 def client():
+    with _client_lock:
+        return _client or _make_client()
+
+
+def _make_client():
     global _client
     if _client is None:
         # Next to Picard's plugin folder (dev launcher: .devdata\metallib), never in the plugin's
@@ -108,6 +119,7 @@ def client():
         folder = os.path.join(os.path.dirname(os.path.abspath(plugin_folder())), 'metallib')
         os.makedirs(folder, exist_ok=True)
         _client = MAClient(os.path.join(folder, 'ma_cache.sqlite'))
+        _client.stop = pools.STOP
     return _client
 
 
@@ -157,7 +169,7 @@ class MetalArchivesAlbum(Album):
             # Restored from a session without its data: fetch the pressing again (MA cache first).
             self.loaded = False
             self.status = AlbumStatus.LOADING
-            thread.run_task(partial(_fetch_pressing, pressing_id_of(self.id)), self._fetched)
+            pools.run(pools.MA, partial(_fetch_pressing, pressing_id_of(self.id)), self._fetched)
             return
         # Replaces the MusicBrainz request: parse the synthetic node with Picard's own parser.
         self.loaded = False
@@ -317,8 +329,8 @@ def start_lookup(cluster):
     if not local['files']:
         return
     _status('searching Metal Archives for "%s" by %s...' % (local['album'], local['band']))
-    thread.run_task(partial(_search, local['band'], local['album']),
-                    partial(_on_search, cluster, local))
+    pools.run(pools.MA, partial(_search, local['band'], local['album']),
+              partial(_on_search, cluster, local), pools.USER)
 
 
 def _on_search(cluster, local, result=None, error=None):
@@ -341,7 +353,7 @@ def _on_search(cluster, local, result=None, error=None):
             return
         hit = ranked[i][1]
     _status('loading "%s" and its pressings from Metal Archives...' % hit['album'])
-    thread.run_task(partial(_resolve, hit, local), partial(_on_resolved, cluster, local, hit))
+    pools.run(pools.MA, partial(_resolve, hit, local), partial(_on_resolved, cluster, local, hit), pools.USER)
 
 
 def _on_resolved(cluster, local, hit, result=None, error=None):
@@ -411,7 +423,7 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
     start_mb_lookup(album, page['band'], page['album'])
     start_discogs(album)
     if page['cover_url']:
-        thread.run_task(partial(client().fetch_bytes, page['cover_url']), partial(_on_cover, album))
+        pools.run(pools.MA, partial(client().fetch_bytes, page['cover_url']), partial(_on_cover, album))
     return album
 
 
@@ -487,7 +499,7 @@ def on_mb_album(api, album, metadata, release_node):
     local = {'folder': '', 'catalog': metadata['catalognumber'],
              'media': (media[0].get('format') or '') if media else '',
              'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
-    thread.run_task(partial(_background_ma, band, title, local), partial(_on_background_ma, album))
+    pools.run(pools.MA, partial(_background_ma, band, title, local), partial(_on_background_ma, album))
     start_discogs(album)
     rg = (release_node.get('release-group') or {}).get('id')
     if rg:
@@ -870,6 +882,11 @@ _discogs = None
 
 
 def discogs():
+    with _client_lock:
+        return _discogs or _make_discogs()
+
+
+def _make_discogs():
     global _discogs
     if _discogs is None:
         from picard.const.appdirs import plugin_folder
@@ -877,6 +894,7 @@ def discogs():
         os.makedirs(folder, exist_ok=True)
         _discogs = DiscogsClient(os.path.join(folder, 'discogs_cache.sqlite'),
                                  lambda: _api.plugin_config['discogs_token'])
+        _discogs.stop = pools.STOP
     return _discogs
 
 
@@ -955,7 +973,7 @@ def start_discogs(album):
                  'lengths': [round((t.metadata.length or 0) / 1000) for t in album.tracks],
                  'folder': os.path.basename(os.path.dirname(files[0].filename)) if files else '',
                  'catalog': album.metadata['catalognumber'], 'media': album.metadata['media']}
-        thread.run_task(partial(_background_discogs, album.metadata['albumartist'], album.metadata['album'], local),
+        pools.run(pools.DISCOGS, partial(_background_discogs, album.metadata['albumartist'], album.metadata['album'], local),
                         partial(_on_discogs, album))
     _when_loaded(album, begin)
 
@@ -1135,9 +1153,9 @@ def _after_restore(album):
     start_mb_lookup(album, album.metadata['albumartist'], album.metadata['album'])
     start_discogs(album)
     pid = pressing_id_of(album.id)
-    thread.run_task(partial(_versions_of, pid), partial(_restored_versions, album, pid))
+    pools.run(pools.MA, partial(_versions_of, pid), partial(_restored_versions, album, pid))
     if info.get('cover_url'):
-        thread.run_task(partial(client().fetch_bytes, info['cover_url']), partial(_on_cover, album))
+        pools.run(pools.MA, partial(client().fetch_bytes, info['cover_url']), partial(_on_cover, album))
 
 
 def _versions_of(pressing_id):
@@ -1244,6 +1262,9 @@ def enable(api: PluginApi) -> None:
     global _api, _orig_lookup_finished
     _api = api
     api.register_cluster_action(LoadFromMetalArchives)
+    # quitting: drop queued Metal Archives / Discogs requests, stop the running one at its next
+    # request (runs before Picard waits for its own pools)
+    api.tagger.register_cleanup(pools.shutdown)
     from picard import cluster as picard_cluster
     _originals['album_artist_from_path'] = picard_cluster.album_artist_from_path
     picard_cluster.album_artist_from_path = _album_artist_from_path

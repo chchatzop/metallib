@@ -195,6 +195,7 @@ class MAClient:
         self._sleep, self._clock = sleep, clock
         self._session_factory = session_factory or _default_session
         self._session = None
+        self.stop = None                # a threading.Event: set -> no new requests (quitting)
         self._db = sqlite3.connect(cache_path, check_same_thread=False)
         self._db.execute('CREATE TABLE IF NOT EXISTS pages (url TEXT PRIMARY KEY, body TEXT, fetched_at REAL)')
         self._db.execute('CREATE TABLE IF NOT EXISTS images (url TEXT PRIMARY KEY, data BLOB, fetched_at REAL)')
@@ -206,6 +207,8 @@ class MAClient:
             row = self._db.execute('SELECT body, fetched_at FROM pages WHERE url=?', (url,)).fetchone()
             if row and self._clock() - row[1] < max_age_days * 86400:
                 return row[0]
+            if self.stop is not None and self.stop.is_set():
+                raise MAError('MetalLib is closing')
             wait = self._last + random.uniform(MIN_INTERVAL, MAX_INTERVAL) - self._clock()
             if wait > 0:
                 self._sleep(wait)
@@ -238,6 +241,8 @@ class MAClient:
             row = self._db.execute('SELECT data FROM images WHERE url=?', (url,)).fetchone()
             if row:
                 return row[0]
+            if self.stop is not None and self.stop.is_set():
+                raise MAError('MetalLib is closing')
             wait = self._last + random.uniform(MIN_INTERVAL, MAX_INTERVAL) - self._clock()
             if wait > 0:
                 self._sleep(wait)
