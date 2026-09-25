@@ -30,6 +30,7 @@ from picard.plugin3.api import (
     File,
     Track,
 )
+from picard.util import thread
 
 from .extras import (
     IMAGE,
@@ -77,6 +78,26 @@ def planned(album, folders=None):
     files = list(album.iterfiles())
     entries = list_extras(folders or source_folders(files), [f.filename for f in files])
     return plan(entries, getattr(album, USER_ATTR, None))
+
+
+# The panel's listing of an album's folders, read in the background (audit part 2 L2: walking a
+# network folder on the window's thread, on every selection and every tick, froze MetalLib when the
+# share was slow). The plan (ticks, names) is computed from it without touching the disk.
+_listings = {}                              # frozenset(folders) -> raw list_extras() result
+
+
+def _listing_key(album):
+    files = list(album.iterfiles())
+    return frozenset(source_folders(files)), [f.filename for f in files]
+
+
+def planned_now(album):
+    """The plan from the last listing of the album's folders, or None when not read yet."""
+    key, _ = _listing_key(album)
+    raw = _listings.get(key)
+    if raw is None:
+        return None
+    return plan([dict(e) for e in raw], getattr(album, USER_ATTR, None))
 
 
 def destination(album):
@@ -321,6 +342,22 @@ class ExtrasPanel(QtWidgets.QWidget):
         if album is not self.album:
             self.album = album
             self.refresh(select=0)
+            self.reread()
+
+    def reread(self):
+        """List the album's folders again, in the background; the panel refreshes when done."""
+        album = self.album
+        if album is None:
+            return
+        key, paths = _listing_key(album)
+        thread.run_task(partial(list_extras, sorted(key), paths), partial(self._listed, album, key))
+
+    def _listed(self, album, key, result=None, error=None):
+        if error is not None or result is None:
+            return
+        _listings[key] = result
+        if album is self.album:
+            self.refresh()
 
     def refresh(self, select=None):
         album = self.album
@@ -332,7 +369,13 @@ class ExtrasPanel(QtWidgets.QWidget):
             self.title.setText('Extra files — select an album')
             self._filling = False
             return
-        self.entries = planned(album)
+        entries = planned_now(album)
+        if entries is None:
+            self.entries = []
+            self.title.setText('Extra files — reading the folder...')
+            self._filling = False
+            return
+        self.entries = entries
         embed_front(album, self.entries)
         dest, prefix, multi = destination(album)
         grey = self.palette().color(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text)

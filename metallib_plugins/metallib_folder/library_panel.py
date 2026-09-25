@@ -40,6 +40,12 @@ COLOURS = {COLLISION: '#d32f2f', REDUNDANT: '#e65100', QUALITY: '#a07800', PRESS
 POLL_MS = 1500
 
 
+def _find(staging, artist, folder, sources):
+    """Thread: the library roots under the staging folder, and the band's albums in them."""
+    roots = default_roots(staging)
+    return roots, scan(roots, artist, folder, sources)
+
+
 class LibraryPanel(QtWidgets.QWidget):
     def __init__(self, api, destination, sources, parent=None):
         super().__init__(parent)
@@ -99,28 +105,27 @@ class LibraryPanel(QtWidgets.QWidget):
             self.table.setRowCount(0)
             return
         _, artist, folder = want
-        roots = self.roots()
-        if not roots:
+        from picard.config import get_config
+        staging = get_config().setting['move_files_to']
+        if not staging:
             self.title.setText('Already in your library — set Options → File Naming → "Move files to" first')
             self.table.setRowCount(0)
             return
         self.title.setText('Already in your library — looking for %s...' % artist)
-        self.title.setToolTip('Looking in:\n' + '\n'.join('%s: %s' % r for r in roots))
         sources = self._sources(self.album)
-        thread.run_task(partial(scan, roots, artist, folder, sources),
-                        partial(self._scanned, self._token, artist, roots))
+        # the roots too are listed in the background (audit part 2 L2: a slow share froze the window)
+        thread.run_task(partial(_find, staging, artist, folder, sources),
+                        partial(self._scanned, self._token, artist))
 
-    def roots(self):
-        from picard.config import get_config
-        return default_roots(get_config().setting['move_files_to'])
-
-    def _scanned(self, token, artist, roots, result=None, error=None):
+    def _scanned(self, token, artist, result=None, error=None):
         if token != self._token:
             return                              # the selection moved on meanwhile
         self.table.setRowCount(0)
         if error:
             self.title.setText('Already in your library — could not read the library: %s' % error)
             return
+        roots, result = result
+        self.title.setToolTip('Looking in:\n' + '\n'.join('%s: %s' % r for r in roots))
         rows = result['rows']
         where = ' / '.join(label for label, _ in roots)
         if not result['artist_dirs']:

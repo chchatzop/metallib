@@ -15,6 +15,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+from functools import partial
 import os
 import time
 
@@ -29,6 +30,7 @@ from picard.plugin3.api import (
     Cluster,
     PluginApi,
 )
+from picard.util import thread
 
 from .folder_scan import (
     CHECK,
@@ -67,14 +69,19 @@ def _names(item):
     return md['albumartist'] or md['artist'], md['album']
 
 
-def _scan_item(item):
+def _scan_args(item):
     files = _files(item)
     folders = {os.path.dirname(f.filename) for f in files}
     # A disc folder ("CD1") belongs to its album folder: scan the parent too.
     folders |= {os.path.dirname(d) for d in folders if len(os.path.basename(d)) <= 12
                 and os.path.basename(d).lower().replace(' ', '').startswith(('cd', 'disc', 'disk'))}
     artist, album = _names(item)
-    return scan(folders, [f.filename for f in files], artist, album), folders
+    return folders, [f.filename for f in files], artist, album
+
+
+def _scan_item(item):
+    folders, paths, artist, album = _scan_args(item)
+    return scan(folders, paths, artist, album), folders
 
 
 def _owner(metadata):
@@ -97,9 +104,25 @@ def folder_summary(parser):
     cached = _cache.get(key)
     if cached and time.time() - cached[0] < CACHE_S:
         return cached[1]
-    text = summary(_scan_item(item)[0]) if files else ''
-    _cache[key] = (time.time(), text)
-    return text
+    if files and key not in _scanning:
+        # Not here: listing (network) folders on the window's thread froze MetalLib whenever the
+        # share was slow (audit part 2 L2). Scanned in the background; the row repaints when done.
+        _scanning.add(key)
+        folders, paths, artist, album = _scan_args(item)
+        thread.run_task(partial(scan, folders, paths, artist, album), partial(_scanned, item, key))
+    return cached[1] if cached else ''
+
+
+_scanning = set()
+
+
+def _scanned(item, key, result=None, error=None):
+    _scanning.discard(key)
+    _cache[key] = (time.time(), '' if error or result is None else summary(result))
+    try:
+        item.update(update_tracks=False) if isinstance(item, Album) else item.update()
+    except (RuntimeError, TypeError):
+        pass                                # the album/cluster went away meanwhile
 
 
 class FolderContents(BaseAction):
