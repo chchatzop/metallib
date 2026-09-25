@@ -214,7 +214,7 @@ class MetalArchivesAlbum(Album):
         # What Metal Archives says, shown as its own column in the tag panel (metadatabox/sources.py).
         ma = Metadata()
         ma.copy(track.metadata)
-        sources = getattr(track, 'source_metadata', None) or {}
+        sources = dict(getattr(track, 'source_metadata', None) or {})
         sources['Metal Archives'] = ma
         track.source_metadata = sources
         make_plain(track.metadata)      # New Value: only what MetalLib writes (the column keeps it all)
@@ -476,9 +476,11 @@ def on_track_built(api, track, metadata, track_node, release_node=None):
     # What MusicBrainz said, before scripts or the user change anything: the MB column.
     if isinstance(track.album, (MetalArchivesAlbum, ShadowAlbum)):
         return
-    set_own_source(track, MUSICBRAINZ, metadata)
+    mb = Metadata()
+    mb.copy(metadata)
     if release_node:
-        _mb_fix(release_node, track.source_metadata[MUSICBRAINZ])
+        _mb_fix(release_node, mb)
+    set_own_source(track, MUSICBRAINZ, mb)
     make_plain(metadata)            # New Value: only what MetalLib writes (the column keeps it all)
 
 

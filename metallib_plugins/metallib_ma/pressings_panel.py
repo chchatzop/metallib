@@ -14,6 +14,7 @@ from PyQt6 import (
     QtWidgets,
 )
 
+from picard.metadata import Metadata
 from picard.plugin3.api import (
     Album,
     File,
@@ -133,7 +134,6 @@ def blocked(album, source):
 def set_mode(album, source, which):
     """The user picked "Album info only" / "Don't use this source": change that source's column
     on every track, then New Value by the rules (which fall back to the files' own values)."""
-    from picard.metadata import Metadata
 
     from . import (
         _refresh_panel,
@@ -147,6 +147,7 @@ def set_mode(album, source, which):
         sources = getattr(track, 'source_metadata', None)
         if not sources or source not in sources:
             continue
+        sources = dict(sources)            # a new dict: the tag panel may be reading the old one
         if which == OFF:
             del sources[source]
         else:
@@ -157,6 +158,7 @@ def set_mode(album, source, which):
                     del md[tag]
             md['~source_label'] = 'album info only'
             sources[source] = md
+        track.source_metadata = sources
     apply_rules(album)
     refresh(album)
     _refresh_panel()
@@ -178,9 +180,13 @@ def _label_column(album, source):
     label = short_label(c) if c else ''
     changed = False
     for track in album.tracks:
-        md = (getattr(track, 'source_metadata', None) or {}).get(source)
+        sources = getattr(track, 'source_metadata', None) or {}
+        md = sources.get(source)
         if md is not None and label and md[LABEL_TAG] != label:
-            md[LABEL_TAG] = label
+            new = Metadata()                # copies, not in place: the tag panel may be reading them
+            new.copy(md)
+            new[LABEL_TAG] = label
+            track.source_metadata = {**sources, source: new}
             changed = True
     if changed and _api is not None:
         box = getattr(_api.tagger.window, 'metadata_box', None)

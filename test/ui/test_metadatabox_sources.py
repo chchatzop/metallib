@@ -317,3 +317,26 @@ class TestRowFilter(PicardTestCase):
             self.assertEqual(sources.source_tag_names([obj]), {'title'})
         finally:
             sources.row_filter = None
+
+
+class TestReadWhileSourcesChange(PicardTestCase):
+    """Audit part 1 M2: the tag panel reads the source values in a worker thread while a plugin
+    changes them on the main thread; a read caught mid-change is done again, never a blank panel."""
+
+    def test_a_read_that_hits_a_change_is_repeated(self):
+        calls = []
+
+        @sources._race_safe(dict)
+        def reader():
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError('dictionary changed size during iteration')
+            return {'ok': 1}
+        self.assertEqual(reader(), {'ok': 1})
+        self.assertEqual(len(calls), 3)
+
+    def test_it_gives_up_with_no_columns(self):
+        @sources._race_safe(dict)
+        def reader():
+            raise RuntimeError('dictionary changed size during iteration')
+        self.assertEqual(reader(), {})

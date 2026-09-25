@@ -63,14 +63,15 @@ def attach(album, source, source_mds):
     Returns how many tracks got a value."""
     tracks = list(album.tracks)
     # A new pressing replaces the source's previous values everywhere, also on tracks it does not pair.
+    # (a NEW dict each time: the tag panel may be reading the old one in its worker thread)
     for track in tracks:
         sources = getattr(track, 'source_metadata', None)
         if sources and source in sources:
-            del sources[source]
+            track.source_metadata = {k: v for k, v in sources.items() if k != source}
     pairs = pair_tracks([_pairing_info(t.metadata) for t in tracks],
                         [_pairing_info(md) for md in source_mds])
     for ti, si in pairs.items():
-        sources = getattr(tracks[ti], 'source_metadata', None) or {}
+        sources = dict(getattr(tracks[ti], 'source_metadata', None) or {})
         sources[source] = source_mds[si]
         tracks[ti].source_metadata = _ordered(sources)
     return len(pairs)
@@ -80,7 +81,7 @@ def set_own_source(track, source, metadata):
     """The album's own source: a snapshot of what it said, taken while the track is built."""
     md = Metadata()
     md.copy(metadata)
-    sources = getattr(track, 'source_metadata', None) or {}
+    sources = dict(getattr(track, 'source_metadata', None) or {})
     sources[source] = md
     track.source_metadata = _ordered(sources)
 

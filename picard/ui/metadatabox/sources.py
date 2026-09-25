@@ -35,6 +35,23 @@ from picard.util import format_time
 DIFFERENT = object()        # the selected objects disagree for this source/tag
 
 
+def _race_safe(empty):
+    """These run in the tag panel's worker thread while plugins may replace a source's values on the
+    main thread: a read that caught a dict mid-change ("changed size during iteration") is simply
+    done again, and gives up with `empty` (no source columns this time) instead of a blank panel."""
+    def wrap(func):
+        def run(*args):
+            for _ in range(5):
+                try:
+                    return func(*args)
+                except RuntimeError:
+                    continue
+            return empty()
+        run.__name__, run.__doc__ = func.__name__, func.__doc__
+        return run
+    return wrap
+
+
 def object_sources(obj):
     """The source_metadata dict that applies to obj ({} if none)."""
     sources = getattr(obj, 'source_metadata', None)
@@ -54,6 +71,7 @@ def source_objects(files, tracks):
 row_filter = None
 
 
+@_race_safe(set)
 def source_tag_names(objects):
     """Tags some source has a value for, which every selected file can store (hidden ~tags
     excluded) and `row_filter` allows. These rows stay visible even after the user deletes the tag
@@ -106,6 +124,7 @@ def length_differs(source_values, new_values):
     return a is not None and b is not None and abs(a - b) > LENGTH_DIFFERS_S
 
 
+@_race_safe(dict)
 def collect(objects, tag_names):
     """-> {source name: {tag: list of values | DIFFERENT}} for the given rows.
 
@@ -138,6 +157,7 @@ def collect(objects, tag_names):
 LABEL_TAG = '~source_label'   # hidden tag in a source's Metadata: what it shows, e.g. the pressing
 
 
+@_race_safe(dict)
 def labels(objects):
     """-> {source name: label} for the column headers: the source's LABEL_TAG when every object
     that has the source agrees, "several" when they differ; sources without a label are left out."""
