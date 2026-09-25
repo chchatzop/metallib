@@ -3,8 +3,8 @@ description: |
   Artist (CC)/YYYY - Album (type) (edition) (RE yyyy) [catalog MEDIA] [quality]/Artist - Album (edition) - NN - Title. Needs the MetalLib Quality and MetalLib Naming plugins.
 author: chchatzop
 license: GNU General Public License version 2 or later
-version: '1.3'
-last_updated: 2026-09-25 05:49:28 UTC
+version: '1.4'
+last_updated: 2026-09-25 10:21:11 UTC
 script_language_version: '1.1'
 script: |
   $noop(
@@ -25,9 +25,9 @@ script: |
   $set(_title,$clean($if2(%title%,%_filename%),title))
   $noop(Reissue: a pressing at least this many years after the first release gets RE yyyy)
   $set(_re_gap,2)
-  $noop(Country: the BAND's - from Metal Archives - else MusicBrainz's artist country - else XU for
-  unknown. International bands are XW. Never the release country - that is where a pressing was made.)
-  $set(_cc,$if2(%_ma_band_country_code%,$getmulti(%_albumartists_countries%,0),XU))
+  $noop(Country: the releasecountry tag - MetalLib fills it with the BAND's country - Metal Archives -
+  else MusicBrainz's artist country - else XU for unknown - International XW - user.)
+  $set(_cc,$if2(%releasecountry%,XU))
   $noop(Folder year = first release - a later pressing year shows as RE or RM)
   $set(_year,$left($if2(%originalyear%,%originaldate%,%date%),4))
   $set(_pyear,$left(%date%,4))
@@ -39,7 +39,7 @@ script: |
 
   $noop(--- edition flags: your own edition tag or the release notes ---)
   $set(_digipak,$if($or($in(%_notes%,digipak),$in(%_notes%,digipack)),1))
-  $set(_jap,$if($or($in(%edition%,Jap),$in(%_notes%,japan),$and($eq(%releasecountry%,JP),$ne(%_cc%,JP))),1))
+  $set(_jap,$if($or($in(%edition%,Jap),$in(%_notes%,japan),$and($eq(%_pressingcountry%,JP),$ne(%_cc%,JP))),1))
   $set(_lim,$if($or($in(%edition%,Lim),$in(%_notes%,limited)),1))
   $set(_us,$if($in(%edition%,US),1))
   $set(_dlx,$if($or($in(%edition%,Dlx),$in(%_notes%,deluxe)),1))

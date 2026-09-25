@@ -103,6 +103,8 @@ class LayoutScript(PicardTestCase):
                 'totaldiscs': '1', 'discnumber': '1', 'releasetype': 'album', 'releasestatus': 'official',
                 '~dirname': r'C:\in\Abbath - Dread Reaver'}
         base.update(tags)
+        if base.get('_ma_band_country_code') and 'releasecountry' not in tags:
+            base['releasecountry'] = base['_ma_band_country_code']     # what MetalLib writes before naming
         for k, v in base.items():
             if v is not None:
                 md['~' + k[1:] if k.startswith('_') else k] = v       # _x -> hidden ~x (%_x% in scripts)
@@ -143,16 +145,15 @@ class LayoutScript(PicardTestCase):
         self.assertNotIn('(RE', got)
 
     def test_japanese_edition_and_multidisc(self):
-        got = self.name(originalyear='1988', date='1988', media='CD', releasecountry='JP', catalognumber='P33D-20077',
+        got = self.name(originalyear='1988', date='1988', media='CD', _pressingcountry='JP', catalognumber='P33D-20077',
                         _ma_band_country_code='US', albumartist='Anthrax', album='State of Euphoria',
                         title='Be All, End All', totaldiscs='2', discnumber='1')
         self.assertEqual(got, 'Anthrax (US)/1988 - State of Euphoria (Jap. Ed.) [P33D-20077 CD] [16-44]/'
                               'Anthrax - State of Euphoria (Jap. Ed.) - 1-01 - Be All, End All')
 
-    def test_country_is_the_bands_else_musicbrainz_artist_country_else_xu(self):
+    def test_folder_country_is_the_releasecountry_tag_else_xu(self):
         self.assertTrue(self.name(media='CD', _ma_band_country_code='XW').startswith('Abbath (XW)/'))  # International
-        self.assertTrue(self.name(media='CD', _albumartists_countries='NO').startswith('Abbath (NO)/'))   # MB artist
-        self.assertTrue(self.name(media='CD', releasecountry='US').startswith('Abbath (XU)/'))  # never the release's
+        self.assertTrue(self.name(media='CD', releasecountry='NO').startswith('Abbath (NO)/'))
         self.assertTrue(self.name(media='CD').startswith('Abbath (XU)/'))                        # unknown
 
     def test_names_are_ascii_like_the_library(self):

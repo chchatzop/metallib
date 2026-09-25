@@ -696,16 +696,45 @@ def _user_picks(track, file=None):
     return picks
 
 
+def _band_country(md, fallback_md=None, orig=None):
+    """The BAND's country as a 2-letter code (user: releasecountry holds it, the folder shows it):
+    Metal Archives, else MusicBrainz's artist country, else the file's own 2-letter value, else XU."""
+    for m in (md, fallback_md):
+        if m is None:
+            continue
+        code = country_code(m['~ma_band_country_code']) or country_code(
+            (m.getall('~albumartists_countries') or [''])[0])
+        if code:
+            return code
+    if orig is not None:
+        code = country_code(orig['releasecountry'])
+        if code:
+            return code
+    return 'XU'
+
+
+def _set_band_country(md, sources, user, fallback_md=None, orig=None):
+    # The pressing's own country stays script-only (~pressingcountry, e.g. "(Jap. Ed.)");
+    # the releasecountry TAG is the band's (user).
+    choice = choose('releasecountry', {n: list(m.getall('releasecountry')) for n, m in (sources or {}).items()})
+    if choice:
+        md['~pressingcountry'] = choice[1][0]
+    if 'releasecountry' not in user:
+        md['releasecountry'] = _band_country(md, fallback_md, orig)
+
+
 def _tidy_track(track, sources, user):
     """Plain tags in New Value (user): no release-track / disc id without a release id (they belong
     to one release), then only the keep-list (keep.py) -- no credits, lyrics, comments, scene tags,
-    ... from any source or from the file. Tags the user picked a value for are left alone."""
-    for md in [track.metadata] + [f.metadata for f in track.files]:
+    ... from any source or from the file; releasecountry = the band's country.
+    Tags the user picked a value for are left alone."""
+    for md, orig in [(track.metadata, None)] + [(f.metadata, f.orig_metadata) for f in track.files]:
         if not md['musicbrainz_albumid']:
             for tag in _RELEASE_ONLY_IDS:
                 if tag in md and tag not in user:
                     del md[tag]
         make_plain(md, user)
+        _set_band_country(md, sources, user, track.metadata, orig)
 
 
 def on_file_saving(api, file):
@@ -719,6 +748,8 @@ def on_file_saving(api, file):
             if tag in file.metadata and tag not in user:
                 del file.metadata[tag]
     removed = make_plain(file.metadata, user)
+    _set_band_country(file.metadata, getattr(track, 'source_metadata', None) if track else None, user,
+                      track.metadata if track else None, file.orig_metadata)
     if removed:
         api.logger.debug("plain tags: %s drops %s", file.base_filename, ', '.join(sorted(removed)))
 

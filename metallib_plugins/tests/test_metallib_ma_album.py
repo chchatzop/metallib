@@ -585,4 +585,25 @@ def test_tidy_drops_release_ids_without_a_release_and_everything_not_kept():
     f = _KeepFile(**{'musicbrainz_trackid': '71633f01', 'performer:backing vocals': 'X (R.I.P. 2022)',
                      'rip date': '2012-05-04', 'language': 'Spanish', 'label': 'L', 'title': 'T'})
     m._tidy_track(_KeepTrack([f]), {}, {})
-    assert sorted(f.metadata) == ['label', 'title']
+    assert sorted(t for t in f.metadata if not t.startswith('~')) == ['label', 'releasecountry', 'title']
+    assert f.metadata['releasecountry'] == 'XU'                             # no band country known
+
+
+def test_releasecountry_is_the_bands_country():
+    import importlib
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    from picard.metadata import Metadata
+    f = _KeepFile(releasecountry='US')
+    track = _KeepTrack([f], **{'~ma_band_country_code': 'AR'})
+    mb = Metadata(releasecountry='US')
+    m._tidy_track(track, {'MusicBrainz': mb}, {})
+    assert f.metadata['releasecountry'] == 'AR' and f.metadata['~pressingcountry'] == 'US'
+    mbonly = _KeepFile()
+    m._tidy_track(_KeepTrack([mbonly], **{'~albumartists_countries': 'NO'}), {}, {})
+    assert mbonly.metadata['releasecountry'] == 'NO'                        # MB's artist country
+    own = _KeepFile(releasecountry='FI')
+    m._tidy_track(_KeepTrack([own]), {}, {})
+    assert own.metadata['releasecountry'] == 'FI'                           # the file's own code
+    picked = _KeepFile(releasecountry='US')
+    m._tidy_track(_KeepTrack([picked], **{'~ma_band_country_code': 'AR'}), {}, {'releasecountry': 'MusicBrainz'})
+    assert picked.metadata['releasecountry'] == 'US'                        # picked by the user: stays
