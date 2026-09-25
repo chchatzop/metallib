@@ -43,6 +43,7 @@ from .extras import (
     target_name,
 )
 from .folder_scan import (
+    _long,
     move_file,
     move_to_trash,
     new_batch,
@@ -133,7 +134,7 @@ def embed_front(album, entries):
     if e is None:
         return False
     try:
-        with open(e['path'], 'rb') as fh:
+        with open(_long(e['path']), 'rb') as fh:
             data = fh.read()
     except OSError:
         return False
@@ -154,7 +155,7 @@ def write_front_file(album, dest, prefix, multi):
     """No image moved with the album and none named Front in its folder: write the album's cover
     there as the library's Front file. -> the new path, or None."""
     try:
-        if any(_FRONT_FILE_RE.search(f) for f in os.listdir(dest)):
+        if any(_FRONT_FILE_RE.search(f) for f in os.listdir(_long(dest))):
             return None
     except OSError:
         return None
@@ -163,9 +164,9 @@ def write_front_file(album, dest, prefix, multi):
     if not data:
         return None
     path = os.path.join(dest, target_name(prefix, multi, 'Front', image.extension or '.jpg'))
-    if os.path.exists(path):
+    if os.path.exists(_long(path)):
         return None
-    with open(path, 'wb') as fh:
+    with open(_long(path), 'wb') as fh:
         fh.write(data)
     return path
 
@@ -174,7 +175,7 @@ def write_front_file(album, dest, prefix, multi):
 
 def read_text(path):
     try:
-        with open(path, 'rb') as fh:
+        with open(_long(path), 'rb') as fh:
             raw = fh.read(TEXT_LIMIT)
     except OSError as e:
         return str(e)

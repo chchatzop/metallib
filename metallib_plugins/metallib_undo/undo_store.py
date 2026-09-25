@@ -26,9 +26,24 @@ import time
 BATCH_GAP_S = 30        # saves further apart than this start a new batch
 
 
+# Windows refuses paths from 248 characters (folders; 260 for files) unless they carry the \\?\
+# prefix (audit part 2 L5: the old threshold of 250 missed folders of 248-249 characters).
+LONG_FROM = 240
+
+
 def _long(path):
-    if os.name == 'nt' and len(path) >= 250 and not path.startswith('\\\\?\\'):
+    if os.name == 'nt' and path and len(path) >= LONG_FROM and not path.startswith('\\\\?\\'):
+        path = os.path.abspath(path)            # the prefix turns off Windows' own path clean-up
         return '\\\\?\\UNC\\' + path[2:] if path.startswith('\\\\') else '\\\\?\\' + path
+    return path
+
+
+def short(path):
+    """A path without the long-path prefix (what the rest of MetalLib and Picard compare with)."""
+    if path.startswith('\\\\?\\UNC\\'):
+        return '\\\\' + path[8:]
+    if path.startswith('\\\\?\\'):
+        return path[4:]
     return path
 
 

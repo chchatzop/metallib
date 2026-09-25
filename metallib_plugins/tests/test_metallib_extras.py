@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Extra files: names the library's way, defaults, prefix from the tracks.
 import importlib.util
+import os
 from pathlib import Path
 import sys
 
@@ -192,3 +193,20 @@ def test_library_same_name_bands_prefer_the_target_country(tmp_path):
     assert [Path(p).name for p in found] == ['Sacrifice (JP)']
     assert len(lib.find_artist_dirs(str(tmp_path), 'Sacrifice', 'Sacrifice (XU)')) == 3
     assert lib.split_artist_folder('Sacrifice (DE) (2006)') == ('Sacrifice', 'DE')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows path length limits')
+def test_extras_in_a_folder_past_the_windows_path_limit(tmp_path):
+    # Audit part 2 L5: files under a path of 260+ characters were silently skipped.
+    ex = _mod()
+    fs = sys.modules['picard.plugins.metallib_folder_xtest.folder_scan']
+    deep = str(tmp_path)
+    while len(deep) < 270:
+        deep = os.path.join(deep, 'a very long folder name of a scene release')
+    os.makedirs(fs._long(deep))
+    with open(fs._long(os.path.join(deep, 'folder.jpg')), 'wb') as fh:
+        fh.write(b'x' * 10)
+    got = ex.list_extras([deep], [])
+    assert [(e['name'], e['size']) for e in got] == [('folder.jpg', 10)]
+    assert got[0]['path'] == os.path.join(deep, 'folder.jpg')          # no long-path prefix in results
+    assert fs.short(fs._long(deep)) == deep

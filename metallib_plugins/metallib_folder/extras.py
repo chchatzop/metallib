@@ -21,6 +21,8 @@ import re
 from .folder_scan import (
     AUDIO_EXTS,
     IMAGE_EXTS,
+    _long,
+    short,
 )
 
 
@@ -48,8 +50,9 @@ def list_extras(folders, album_audio):
     album_audio = {os.path.normcase(os.path.abspath(p)) for p in album_audio}
     out, seen = [], set()
     for folder in folders:
-        for dirpath, dirs, files in os.walk(folder):
+        for dirpath, dirs, files in os.walk(_long(folder)):
             dirs[:] = sorted(d for d in dirs if not d.startswith('.metallib_trash'))
+            dirpath = short(dirpath)
             for name in sorted(files, key=str.lower):
                 path = os.path.join(dirpath, name)
                 key = os.path.normcase(os.path.abspath(path))
@@ -61,7 +64,7 @@ def list_extras(folders, album_audio):
                 else:
                     kind = kind_of(name)
                 try:
-                    size = os.path.getsize(path)
+                    size = os.path.getsize(_long(path))
                 except OSError:
                     size = 0
                 out.append({'path': path, 'rel': os.path.relpath(path, folder), 'folder': folder, 'name': name,
@@ -195,7 +198,7 @@ def foreign_audio(entries):
 def _free(target):
     base, ext = os.path.splitext(target)
     n = 2
-    while os.path.exists(target):
+    while os.path.exists(_long(target)):
         target = '%s (%d)%s' % (base, n, ext)
         n += 1
     return target
@@ -209,7 +212,7 @@ def execute(entries, prefix, multi, dest, log, batch, move_file, move_to_trash):
         return done
     for e in entries:
         src = e['path']
-        if not os.path.exists(src):
+        if not os.path.exists(_long(src)):
             continue
         try:
             if e['tick']:
@@ -229,8 +232,8 @@ def execute(entries, prefix, multi, dest, log, batch, move_file, move_to_trash):
 
 def remove_empty_dirs(folder, keep=None):
     """Remove `folder` and its subfolders when they are empty (never one holding a file, never `keep`)."""
-    for dirpath, dirs, files in os.walk(folder, topdown=False):
-        key = os.path.normcase(os.path.abspath(dirpath))
+    for dirpath, dirs, files in os.walk(_long(folder), topdown=False):
+        key = os.path.normcase(os.path.abspath(short(dirpath)))
         if key == keep:
             continue
         try:
