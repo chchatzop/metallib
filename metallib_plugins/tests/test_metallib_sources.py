@@ -189,3 +189,13 @@ class TestUserEditsWin(TestApplyRules):
         list(apply_tag_values([t], 'barcode', []))
         self.plugin.apply_rules(album)
         self.assertNotIn('barcode', t.metadata)
+
+
+def test_position_without_a_length_needs_the_title():
+    # Audit part 1 M3: Winter/Outro have no length on one side and are in another order there.
+    targets = [_t('Intro', 60, 1), _t('Storm', 300, 2), _t('Winter', 0, 3), _t('Outro', 0, 4)]
+    sources = [_t('Intro', 61, 1), _t('Storm', 301, 2), _t('Outro', 95, 3), _t('Winter', 420, 4)]
+    assert r.pair_tracks(targets, sources) == {0: 0, 1: 1, 2: 3, 3: 2}
+    # same order, titles agree, lengths missing: still the same tracklist
+    same = [_t('Intro', 61, 1), _t('Storm', 301, 2), _t('Winter', 0, 3), _t('Outro', 0, 4)]
+    assert r.pair_tracks(targets, same) == {0: 0, 1: 1, 2: 2, 3: 3}

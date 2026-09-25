@@ -360,6 +360,8 @@ def pair_tracks(targets, sources):
                 by_length += 1
             elif d is not None and title_score(t.get('title'), s.get('title')) < PAIR_TITLE:
                 break
+            elif d is None and t.get('title') and s.get('title')                     and title_score(t.get('title'), s.get('title')) < PAIR_TITLE:
+                break           # no length to confirm it: the titles must (audit part 1 M3)
         else:
             if by_length * 2 >= len(targets):
                 return {i: i for i in range(len(targets))}
