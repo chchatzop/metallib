@@ -645,3 +645,19 @@ def test_musicbrainz_placeholders_are_not_values():
     assert sorted(keep.make_plain(md)) == ['catalognumber', 'label'] and md['title'] == 'T'
     own = Metadata(catalognumber='[none]')
     assert keep.make_plain(own, user={'catalognumber'}) == []              # typed by the user: stays
+
+
+def test_a_lookup_only_takes_the_files_still_in_the_cluster():
+    # Audit part 1 M4: files moved away or removed while Metal Archives answered stay where they are.
+    import importlib
+    from types import SimpleNamespace
+    from picard.file import File
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    cluster, other = object(), object()
+    stay = SimpleNamespace(parent_item=cluster, state=File.State.NORMAL)
+    moved = SimpleNamespace(parent_item=other, state=File.State.NORMAL)
+    removed = SimpleNamespace(parent_item=cluster, state=File.State.REMOVED)
+    local = {'files': [stay, moved, removed], 'album': 'X'}
+    assert m._files_still_there(cluster, local) == [stay]

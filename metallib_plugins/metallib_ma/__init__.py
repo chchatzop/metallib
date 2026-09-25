@@ -298,6 +298,20 @@ def _status(text):
     _api.tagger.window.set_statusbar_message('MetalLib: %s', text)
 
 
+def _files_still_there(cluster, local):
+    """The looked-up files that are still in the cluster (audit part 1 M4): a lookup takes seconds to
+    minutes, and files moved to another album or removed meanwhile must not be pulled back."""
+    from picard.file import File
+    return [f for f in local['files'] if f.parent_item is cluster and f.state != File.State.REMOVED]
+
+
+def _gone(cluster, local):
+    if _files_still_there(cluster, local):
+        return False
+    _status('Metal Archives lookup for "%s" dropped: its files were moved or removed meanwhile' % local['album'])
+    return True
+
+
 def start_lookup(cluster):
     local = _local_info(cluster)
     if not local['files']:
@@ -313,6 +327,8 @@ def _on_search(cluster, local, result=None, error=None):
         return
     if not result:
         _status('nothing found on Metal Archives for "%s" by %s' % (local['album'], local['band']))
+        return
+    if _gone(cluster, local):
         return
     ranked = rank_hits(result, local['band'], local['album'])
     hit = auto_pick(ranked)
@@ -331,6 +347,8 @@ def _on_search(cluster, local, result=None, error=None):
 def _on_resolved(cluster, local, hit, result=None, error=None):
     if error:
         _status('Metal Archives lookup failed: %s' % error)
+        return
+    if _gone(cluster, local):
         return
     fitting = [c for c in result['checked'] if c['fits']]
     if len(fitting) == 1 and not result['more']:
@@ -351,7 +369,8 @@ def _on_resolved(cluster, local, hit, result=None, error=None):
             return
         chosen = ordered[i]
     album = _build_album(cluster, local, hit, chosen, result['original_date'], result.get('band') or {})
-    _record_ma(album, result, chosen['version']['album_id'])
+    if album is not None:
+        _record_ma(album, result, chosen['version']['album_id'])
 
 
 def _record_ma(album, result, chosen_id):
@@ -368,6 +387,10 @@ def _record_ma(album, result, chosen_id):
 
 def _build_album(cluster, local, hit, chosen, original_date, band):
     tagger = _api.tagger
+    files = _files_still_there(cluster, local)      # not the ones seen at the start (audit part 1 M4)
+    if not files:
+        _gone(cluster, local)
+        return None
     page, version = chosen['page'], chosen['version']
     node = build_release(page, version, original_date)
     aid = album_id_for(page['album_id'])
@@ -380,9 +403,9 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
         tagger.album_added.emit(album)
     # Files first (they wait in "unmatched" while not loaded), then load: the load's own
     # match_files places every file by title + duration.
-    tagger.move_files_to_album(local['files'], album=album)
-    if not album.loaded:
-        album.load()
+    tagger.move_files_to_album(files, album=album)
+    if not album.loaded and album._ma_node is not None:
+        album.load()                # (a restored album still fetching its page loads when it arrives)
     _status('loaded "%s" (%s %s) from Metal Archives' % (page['album'], version.get('format', ''),
                                                           version.get('catalog', '')))
     start_mb_lookup(album, page['band'], page['album'])
@@ -553,7 +576,11 @@ def _apply_lineup(lineup, md):
 # -- Metal Archives album: find the same release on MusicBrainz ---------------------------------
 
 def start_mb_lookup(album, band, title):
-    count = len(album.tracks) or sum(len(m.get('tracks') or []) for m in album._ma_node.get('media') or [])
+    if not album.loaded and album._ma_node is None:
+        # restored from a session and still fetching its page (audit part 1 L3: this crashed)
+        _when_loaded(album, partial(start_mb_lookup, album, band, title))
+        return
+    count = len(album.tracks) or sum(len(m.get('tracks') or []) for m in (album._ma_node or {}).get('media') or [])
     _api.tagger.mb_api.find_releases(partial(_on_mb_search, album, band, title, count),
                                      artist=band, release=title, limit=10)
 
