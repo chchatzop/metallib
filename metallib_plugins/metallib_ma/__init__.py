@@ -333,9 +333,17 @@ def start_lookup(cluster):
               partial(_on_search, cluster, local), pools.USER)
 
 
+def _forget_tried(local):
+    # a lookup that failed on the network / Cloudflare may be tried again (audit part 1 L6)
+    for f in local['files']:
+        if getattr(f, _TRIED_ATTR, False):
+            setattr(f, _TRIED_ATTR, False)
+
+
 def _on_search(cluster, local, result=None, error=None):
     if error:
         _status('Metal Archives search failed: %s' % error)
+        _forget_tried(local)
         return
     if not result:
         _status('nothing found on Metal Archives for "%s" by %s' % (local['album'], local['band']))
@@ -374,6 +382,7 @@ def _start_resolve(cluster, local, hit):
 def _on_resolved(cluster, local, hit, result=None, error=None):
     if error:
         _status('Metal Archives lookup failed: %s' % error)
+        _forget_tried(local)
         return
     if _gone(cluster, local):
         return

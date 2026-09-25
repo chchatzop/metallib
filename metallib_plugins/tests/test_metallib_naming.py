@@ -208,3 +208,16 @@ class CatnumTag(PicardTestCase):
         self.assertEqual(mod.catnum_for(F(r'C:\in\Band-Album-WEB-2023-GRP', media='CD', catalognumber='X1')), 'WEB')
         self.assertEqual(mod.catnum_for(F(r'C:\in\Band - Album')), '')                         # nothing known
 
+
+
+class FolderEndingInDots(LayoutScript):
+    def test_album_ending_in_dots_with_nothing_after(self):
+        # Audit part 2 L4: "Into the Abyss..." with no bracket or quality after it became ".._"
+        got = self.name(quality='', album='Into the Abyss...', originalyear='2001', media='',
+                        releasecountry='NO', _dirname=r'C:\in\x')
+        self.assertEqual(got.split('/')[1], '2001 - Into the Abyss')
+        self.assertIn('Into the Abyss... - 01', got.split('/')[2])          # the file keeps them
+
+    def test_dots_inside_stay(self):
+        got = self.name(album='Into the Abyss...', originalyear='2001', media='CD', releasecountry='NO')
+        self.assertEqual(got.split('/')[1], '2001 - Into the Abyss... [CD] [16-44]')

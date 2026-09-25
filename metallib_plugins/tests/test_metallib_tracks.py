@@ -272,6 +272,9 @@ class TestResolveInPicard(PicardTestCase):
         self.assertEqual(g('1-03 Tunnel of Set VIII.flac'), 'Tunnel of Set VIII')
         self.assertEqual(g('Band - Album - 12 - 1000 Years of War.mp3'), '1000 Years of War')
         self.assertEqual(g('Untitled.flac'), 'Untitled')
+        # audit part 2 L3: the first track token of the library layout decides
+        self.assertEqual(g('Band - Album - 04 - Part 2 - The End.flac'), 'Part 2 - The End')
+        self.assertEqual(g('Band - Album - 2-04 - Symphony No. 5 - Allegro.flac'), 'Symphony No. 5 - Allegro')
 
 
 # --- Wrong-release guard -------------------------------------------------------------------------

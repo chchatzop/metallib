@@ -80,9 +80,14 @@ def _set_flag(file, status, reason):
 _TITLE_AFTER_NUMBER_RE = re.compile(r'(?:^|[\s._-])(?:\d{1,2}-)?\d{1,3}\s*[-._)]?\s+(?=\S)(?!.*\s\d{1,3}\s*[-._)]\s)(.+)$')
 
 
+# The library's own layout "Band - Album - 04 - Title" / "... - 2-04 - Title": the FIRST such track
+# token decides, so a title with its own " 2 - " ("Part 2 - The End") stays whole (audit part 2 L3).
+_LIBRARY_TRACK_RE = re.compile(r' - (?:\d{1,2}-)?\d{1,3} - (.+)$')
+
+
 def title_from_filename(name):
     stem = os.path.splitext(name)[0] if re.search(r'\.[A-Za-z0-9]{2,4}$', name) else name
-    m = _TITLE_AFTER_NUMBER_RE.search(stem)
+    m = _LIBRARY_TRACK_RE.search(stem) or _TITLE_AFTER_NUMBER_RE.search(stem)
     title = m.group(1) if m else _originals['tracknum_and_title_from_filename'](stem).title or ''
     return title.strip(' -._')
 

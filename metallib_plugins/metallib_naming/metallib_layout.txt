@@ -46,6 +46,9 @@ $set(_q,$album_quality())
 
 $noop(--- folders: artists straight in the destination folder - no letter folder - user ---)
 %_artist_file% \(%_cc%\)/
+$noop(The album folder - a folder name may not end in a dot - Windows - so an album ending in ...
+with nothing after it loses the dots there - the file names keep them - audit part 2 L4)
+$set(_dir,
 $if(%_year%,%_year% - )%_album%
 $if($in(%_types%,single), \(Single\))
 $if($in(%_types%,ep), \(EP\))
@@ -65,7 +68,8 @@ $if(%_re%, \(RE %_re%\))
 $if(%_rm%, \(RM %_rm%\))
 $if(%_bracket%, [%_bracket%])
 $if(%_q%, [%_q%])
-/
+)
+$rreplace(%_dir%,[.]+\$,)/
 
 $noop(--- file ---)
 %_artist_file% - %_album%

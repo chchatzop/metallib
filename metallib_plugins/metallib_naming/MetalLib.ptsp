@@ -3,8 +3,8 @@ description: |
   Artist (CC)/YYYY - Album (type) (edition) (RE yyyy) [catalog MEDIA] [quality]/Artist - Album (edition) - NN - Title. Needs the MetalLib Quality and MetalLib Naming plugins.
 author: chchatzop
 license: GNU General Public License version 2 or later
-version: '1.4'
-last_updated: 2026-09-25 10:21:11 UTC
+version: '1.5'
+last_updated: 2026-09-25 22:13:46 UTC
 script_language_version: '1.1'
 script: |
   $noop(
@@ -55,6 +55,9 @@ script: |
 
   $noop(--- folders: artists straight in the destination folder - no letter folder - user ---)
   %_artist_file% \(%_cc%\)/
+  $noop(The album folder - a folder name may not end in a dot - Windows - so an album ending in ...
+  with nothing after it loses the dots there - the file names keep them - audit part 2 L4)
+  $set(_dir,
   $if(%_year%,%_year% - )%_album%
   $if($in(%_types%,single), \(Single\))
   $if($in(%_types%,ep), \(EP\))
@@ -74,7 +77,8 @@ script: |
   $if(%_rm%, \(RM %_rm%\))
   $if(%_bracket%, [%_bracket%])
   $if(%_q%, [%_q%])
-  /
+  )
+  $rreplace(%_dir%,[.]+\$,)/
 
   $noop(--- file ---)
   %_artist_file% - %_album%
