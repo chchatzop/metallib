@@ -21,8 +21,10 @@ KEEP = frozenset((
     'genre', 'genre_source', 'ma_genre',
     # the pressing
     'label', 'catalognumber', 'catnum', 'media', 'releasecountry',
-    # edition tags of the user's library (showcat = 1: the catalog bracket goes into file names too)
-    'albumversion', 'showcat',
+    # the user's own naming tags (they drive the folder name, see the naming script):
+    # edition (Jap / Lim / Dlx ...), reissue (year), remaster (year), showcat (= 1: the catalog
+    # bracket goes into file names too), albumversion (free text)
+    'edition', 'reissue', 'remaster', 'showcat', 'albumversion',
     # release kind
     'releasetype', 'releasestatus',
     # ids

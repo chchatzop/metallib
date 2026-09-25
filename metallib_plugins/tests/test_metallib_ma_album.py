@@ -575,6 +575,8 @@ def test_plain_tags_keep_list():
     assert sorted(removed) == ['asin', 'barcode', 'comment', 'isrc', 'language', 'lyrics', 'organization',
                                'performer:guitar', 'rip date', 'script', 'writer']
     assert md['producer'] == 'Pr' and md['~hidden'] == 'h'                 # a user pick stays; hidden untouched
+    naming = Metadata(edition=['Jap', 'Lim'], reissue='2011', remaster='2013', showcat='1', albumversion='x')
+    assert keep.make_plain(naming) == []                                   # the user's naming tags stay
     with_release = Metadata(musicbrainz_albumid='rel', barcode='123', isrc='I', asin='A1')
     assert keep.make_plain(with_release) == []                             # a real MB release: kept
 
