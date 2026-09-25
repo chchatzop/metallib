@@ -55,6 +55,8 @@ PREVIEW_OPTION = 'extras_preview_geometry'
 COLUMNS_OPTION = 'extras_columns'
 TEXT_LIMIT = 512 * 1024
 _panel = None
+_library = None                             # the "Already in your library" list beside it
+_row = None                                 # the splitter holding both
 _api = None
 _log_factory = None
 _originals = {}
@@ -475,6 +477,8 @@ def _on_selection(objects):
     album = _album_of(objects)
     if album is not None and _panel is not None:
         _panel.show_album(album)
+    if album is not None and _library is not None:
+        _library.show_album(album)
 
 
 # -- saving ------------------------------------------------------------------------------------------------
@@ -587,7 +591,7 @@ def _save_layout(splitters, *args):
 
 
 def install(api, log_factory, tries=100):
-    global _panel, _api, _log_factory
+    global _panel, _library, _row, _api, _log_factory
     _api, _log_factory = api, log_factory
     window = getattr(api.tagger, 'window', None)
     if window is None or not hasattr(window, 'panel'):
@@ -600,16 +604,26 @@ def install(api, log_factory, tries=100):
     if not isinstance(rows, QtWidgets.QSplitter):
         return
     _panel = ExtrasPanel()
-    # its own full-width row right above the tag panel (user: names are wide), below the pressings
+    from .library_panel import LibraryPanel
+    _library = LibraryPanel(api, destination, lambda album: source_folders(list(album.iterfiles())))
+    # its own full-width row right above the tag panel (user: names are wide), below the pressings;
+    # split in two (user): extra files | already in your library
+    _row = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+    _row.setObjectName('metallib_extras_library')
+    _row.setChildrenCollapsible(False)
+    _row.addWidget(_panel)
+    _row.addWidget(_library)
+    _row.setStretchFactor(0, 1)
+    _row.setStretchFactor(1, 1)
     before = rows.sizes()
-    rows.insertWidget(rows.count() - 1, _panel)
-    rows.setStretchFactor(rows.indexOf(_panel), 0)
+    rows.insertWidget(rows.count() - 1, _row)
+    rows.setStretchFactor(rows.indexOf(_row), 0)
     if before and before[-1] > 300:
         # first layout (a saved one replaces it): a few rows' worth, taken from the tag panel
         sizes = before[:-1] + [140, before[-1] - 140]
         rows.setSizes(sizes)
     window.selection_updated.connect(_on_selection)
-    splitters = (rows,)
+    splitters = (rows, _row)
     for delay in (0, 1500):                   # after Picard's and the pressing panel's own restore
         QtCore.QTimer.singleShot(delay, partial(_restore_layout, splitters))
     for sp in splitters:
@@ -619,7 +633,7 @@ def install(api, log_factory, tries=100):
 
 
 def uninstall():
-    global _panel
+    global _panel, _library, _row
     if 'move_additional_files' in _originals:
         File._move_additional_files = _originals.pop('move_additional_files')
     if _panel is None:
@@ -630,6 +644,8 @@ def uninstall():
         pass
     if _panel.preview is not None:
         _panel.preview.close()
-    _panel.setParent(None)
-    _panel.deleteLater()
-    _panel = None
+    if _library is not None:
+        _library.timer.stop()
+    _row.setParent(None)
+    _row.deleteLater()
+    _panel = _library = _row = None

@@ -7,6 +7,8 @@
 #   the Extra files panel          a row above the tag panel: tick / rename / preview the album's
 #                                  extra files; they move (or go to the trash) when it is saved --
 #                                  see extras_panel.py
+#   Already in your library        right half of that row: the band's albums already filed (staging +
+#                                  archive roots), compared with where this one goes -- library.py
 #
 # Junk goes to .metallib_trash at the root of the same drive/share -- never deleted, always undoable.
 # See folder_scan.py for the rules.
@@ -216,6 +218,7 @@ def enable(api: PluginApi) -> None:
     api.plugin_config.register_option(extras_panel.LAYOUT_OPTION, '')
     api.plugin_config.register_option(extras_panel.PREVIEW_OPTION, '')
     api.plugin_config.register_option(extras_panel.COLUMNS_OPTION, '')
+    api.plugin_config.register_option('library_columns', '')
     extras_panel.install(api, _log)
     api.register_file_pre_save_processor(extras_panel.on_file_saving)
     api.register_file_post_save_processor(extras_panel.on_file_saved)

@@ -125,3 +125,70 @@ def test_execute_never_trashes_audio(tmp_path):
     ex.execute(entries, 'A - B', False, str(tmp_path / 'o'), fs.ActionLog(str(tmp_path / 'l')), 'b', fs.move_file,
                fs.move_to_trash)
     assert (tmp_path / 'sample.mp3').exists()
+
+
+def _lib():
+    _mod()
+    name = 'picard.plugins.metallib_folder_xtest.library'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, PLUGIN_DIR / 'library.py')
+        m = importlib.util.module_from_spec(spec)
+        sys.modules[name] = m
+        spec.loader.exec_module(m)
+    return sys.modules[name]
+
+
+def test_library_album_ident():
+    lib = _lib()
+    got = lib.album_ident('1996 - Opus IV (EP) (RE 2004) (Digipak) [NPR 154 CD] [16-44]')
+    assert (got['year'], got['title'], got['quality']) == ('1996', 'Opus IV (EP)', '16-44')
+    assert got['pressing'] == 'npr154cd|digipak|re2004'
+    assert lib.album_ident('1996 - Opus IV [NPR 020 CD] [16-44]')['album'] == lib.album_ident(
+        '1996 - Opus IV (RE 2004) [NPR 154 CD] [16-44]')['album']
+
+
+@pytest.mark.parametrize('existing,cls', [
+    ('2001 - Satanized [NPR 088 CD] [16-44]', 'collision'),
+    ('2001 - Satanized  [NPR 088 CD]  [16-44]', 'collision'),
+    ('2001 - Satanized [NPR088 CD] [16-44]', 'redundant'),
+    ('2001 - Satanized [NPR 088 CD] [24-96]', 'quality'),
+    ('2001 - Satanized (Promo) [NPR 088 CD] [16-44]', 'pressing'),
+    ('2001 - Satanized (RE 2010) [NPR 300 CD] [16-44]', 'pressing'),
+    ('2001 - Satanized (EP) [NPR 088 CD] [16-44]', 'other'),
+    ('1999 - Channeling the Quintessence of Satan [NPR 062 CD] [16-44]', 'other'),
+])
+def test_library_classify(existing, cls):
+    lib = _lib()
+    target = '2001 - Satanized [NPR 088 CD] [16-44]'
+    assert lib.classify(lib.album_ident(target), lib.album_ident(existing), target, existing)[0] == cls
+
+
+def test_library_quality_direction():
+    lib = _lib()
+    t, e = '2001 - X [CD] [16-44]', '2001 - X [CD] [320K]'
+    assert lib.classify(lib.album_ident(t), lib.album_ident(e), t, e) == ('quality', 'yours is an upgrade')
+
+
+def test_library_finds_the_band_in_letter_folders_and_flat_roots(tmp_path):
+    lib = _lib()
+    sorted_, staging = tmp_path / 'Sorted', tmp_path / 'Metal'
+    for p in ('A/Abigor (AT)/1994 - Verwustung [NPR 005 CD] [16-44]', 'A/Absu (US)/1993 - Barathrum [CD] [16-44]',
+              'M/Motörhead (GB)/1980 - Ace of Spades [CD] [16-44]', 'B/x', 'C/x', 'D/x'):
+        (sorted_ / p).mkdir(parents=True)
+    (staging / 'Abigor (AT)' / '2001 - Satanized [NPR 088 CD] [16-44]').mkdir(parents=True)
+    (staging / 'Abigor (AT)' / '2001 - Satanized [NPR 088 CD] [16-44]' / '01.flac').write_bytes(b'x')
+    got = lib.scan([('Staging', str(staging)), ('Sorted', str(sorted_))], 'Abigor',
+                   str(staging / 'Abigor (AT)' / '2001 - Satanized [NPR 088 CD] [16-44]'))
+    assert [(r['where'], r['class'], r['audio']) for r in got['rows']] == [('Staging', 'collision', 1),
+                                                                           ('Sorted', 'other', 0)]
+    assert lib.find_artist_dirs(str(sorted_), 'Motorhead')[0].endswith('Motörhead (GB)')
+
+
+def test_library_same_name_bands_prefer_the_target_country(tmp_path):
+    lib = _lib()
+    for n in ('Sacrifice (CA)', 'Sacrifice (JP)', 'Sacrifice (DE) (2006)'):
+        (tmp_path / n).mkdir()
+    found = lib.find_artist_dirs(str(tmp_path), 'Sacrifice', 'Sacrifice (JP)')
+    assert [Path(p).name for p in found] == ['Sacrifice (JP)']
+    assert len(lib.find_artist_dirs(str(tmp_path), 'Sacrifice', 'Sacrifice (XU)')) == 3
+    assert lib.split_artist_folder('Sacrifice (DE) (2006)') == ('Sacrifice', 'DE')
