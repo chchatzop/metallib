@@ -603,3 +603,28 @@ def test_title_with_wrong_length_is_not_assumed_while_other_tracks_are_free_by_t
     tracks = [{'title': 'A', 'length': s('3:00'), 'number': '1'}, {'title': 'B', 'length': s('4:00'), 'number': '2'}]
     res = place(files(('A', '3:00', ''), ('A', '5:00', '')), tracks, similarity2)
     assert res[1]['status'] == UNPLACED
+
+
+def test_fingerprint_placement_does_not_wait_forever(monkeypatch):
+    # Audit part 2 M3: a file fpcalc cannot read never gets a callback, so nothing was ever placed.
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    plugin = _load_tracks_plugin()
+    messages, resolved = [], []
+
+    class Unmatched:
+        def iterfiles(self):
+            return iter(['good', 'bad'])
+    album = SimpleNamespace(id='a', unmatched_files=Unmatched(), metadata={'album': 'X'})
+    window = SimpleNamespace(metadata_box=SimpleNamespace(ignore_updates=nullcontext()),
+                             set_statusbar_message=lambda msg, *a: messages.append(msg % a))
+    monkeypatch.setattr(plugin, '_api', SimpleNamespace(tagger=SimpleNamespace(albums={'a': album}, window=window)))
+    monkeypatch.setattr(plugin, 'resolve', lambda album, files: resolved.append(list(files)))
+    good, bad = type('F', (), {})(), type('F', (), {})()
+    run = {'pending': {good, bad}, 'done': False}
+    plugin._fingerprinted(album, good, run, result={'recordings': [{'id': 'r1'}]})
+    assert not resolved                                  # still waiting for "bad"
+    plugin._fp_resolve(album, run)                       # the timeout
+    assert len(resolved) == 1 and '1 could not be fingerprinted' in messages[-1]
+    plugin._fingerprinted(album, bad, run)               # a late answer: placed only once
+    assert len(resolved) == 1

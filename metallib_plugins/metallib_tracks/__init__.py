@@ -235,26 +235,45 @@ class PlaceByFingerprint(BaseAction):
                     'MetalLib: "%s" has no MusicBrainz recording ids to compare fingerprints with',
                     album.metadata['album'])
                 continue
-            pending = set(files)
+            from picard.acoustid import find_fpcalc
+            if not find_fpcalc():
+                self.tagger.window.set_statusbar_message(
+                    'MetalLib: fpcalc (Chromaprint) not found -- set it in Options → Fingerprinting')
+                continue
+            run = {'pending': set(files), 'done': False}
             self.tagger.window.set_statusbar_message('MetalLib: fingerprinting %d file(s) of "%s"...',
                                                      len(files), album.metadata['album'])
             for f in files:
-                self.tagger._acoustid.analyze(f, partial(_fingerprinted, album, f, pending))
+                self.tagger._acoustid.analyze(f, partial(_fingerprinted, album, f, run))
+            # Picard's AcoustID code never calls back for a file fpcalc cannot read (audit part 2 M3):
+            # don't wait for it forever -- place with the fingerprints that did arrive.
+            QtCore.QTimer.singleShot(FP_TIMEOUT_MS, partial(_fp_resolve, album, run))
 
 
-def _fingerprinted(album, file, pending, result=None, http=None, error=None):
+FP_TIMEOUT_MS = 120000
+
+
+def _fingerprinted(album, file, run, result=None, http=None, error=None):
     recordings = (result or {}).get('recordings') or []
     setattr(file, _FP_ATTR, {r.get('id') for r in recordings if r.get('id')})
-    pending.discard(file)
-    if pending or album.id not in _api.tagger.albums:
+    run['pending'].discard(file)
+    if not run['pending']:
+        _fp_resolve(album, run)
+
+
+def _fp_resolve(album, run):
+    if run['done'] or album.id not in _api.tagger.albums:
         return
+    run['done'] = True
+    missing = len(run['pending'])
     files = [f for f in album.unmatched_files.iterfiles()]
     before = len(files)
     with _api.tagger.window.metadata_box.ignore_updates:
         resolve(album, files)
     placed = before - len(list(album.unmatched_files.iterfiles()))
-    _api.tagger.window.set_statusbar_message('MetalLib: fingerprints placed %d of %d file(s) of "%s"',
-                                             placed, before, album.metadata['album'])
+    _api.tagger.window.set_statusbar_message(
+        'MetalLib: fingerprints placed %d of %d file(s) of "%s"%s', placed, before, album.metadata['album'],
+        ' (%d could not be fingerprinted)' % missing if missing else '')
 
 
 class PlacementReport(BaseAction):
