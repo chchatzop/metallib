@@ -49,13 +49,21 @@ def source_objects(files, tracks):
     return list(files) + [t for t in tracks if not t.num_linked_files]
 
 
+# A plugin may limit which source tags get a row of their own: row_filter(tag) -> bool. MetalLib
+# shows only tags it would write (its keep-list); what the files already have always has a row.
+row_filter = None
+
+
 def source_tag_names(objects):
     """Tags some source has a value for, which every selected file can store (hidden ~tags
-    excluded). These rows stay visible even after the user deletes the tag from New Value."""
+    excluded) and `row_filter` allows. These rows stay visible even after the user deletes the tag
+    from New Value."""
     tags = set()
     for obj in objects:
         for md in object_sources(obj).values():
             tags.update(t for t in md if not t.startswith('~'))
+    if row_filter is not None:
+        tags = {t for t in tags if row_filter(t)}
     files = [o for o in objects if isinstance(o, File)]
     return {t for t in tags if all(f.supports_tag(t) for f in files)}
 

@@ -70,7 +70,10 @@ from .pressings import (
     from_ma,
     from_mb,
 )
-from .keep import make_plain
+from .keep import (
+    keeps,
+    make_plain,
+)
 from .rules import (
     POSITION_TAGS,
     PRESSING_TAGS,
@@ -202,6 +205,7 @@ class MetalArchivesAlbum(Album):
         sources = getattr(track, 'source_metadata', None) or {}
         sources['Metal Archives'] = ma
         track.source_metadata = sources
+        make_plain(track.metadata)      # New Value: only what MetalLib writes (the column keeps it all)
         return track
 
     def _apply_band(self, metadata):
@@ -440,6 +444,7 @@ def on_track_built(api, track, metadata, track_node, release_node=None):
     set_own_source(track, MUSICBRAINZ, metadata)
     if release_node:
         _mb_fix(release_node, track.source_metadata[MUSICBRAINZ])
+    make_plain(metadata)            # New Value: only what MetalLib writes (the column keeps it all)
 
 
 def _mb_fix(release_node, md):
@@ -1157,6 +1162,8 @@ def _unhook_session():
 
 def disable() -> None:
     _unhook_session()
+    from picard.ui.metadatabox import sources as box_sources
+    box_sources.row_filter = None
     pressings_panel.uninstall()
     from picard import cluster as picard_cluster
     if 'album_artist_from_path' in _originals:
@@ -1178,6 +1185,10 @@ def enable(api: PluginApi) -> None:
     pressings_panel.install(api)
     _hook_session(api)
     api.register_file_pre_save_processor(on_file_saving)
+    # Tag panel rows: a source's tag gets a row only when MetalLib would write it (user); the
+    # files' own tags always have one.
+    from picard.ui.metadatabox import sources as box_sources
+    box_sources.row_filter = lambda tag: keeps(tag, True)
     for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),
                       ('_ma_band_country_code', 'Band country code from Metal Archives, e.g. "IT".'),
                       ('_ma_band_status', 'Band status from Metal Archives, e.g. "Active".'),

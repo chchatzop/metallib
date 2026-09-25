@@ -119,9 +119,12 @@ class TestMetalArchivesAlbumInPicard(PicardTestCase):
                          ('Black Metal', 'Norway', 'NO'))
         self.assertEqual({t.metadata['genre'] for t in album.tracks}, {'Black Metal'})
         self.assertEqual({t.metadata['~ma_band_country_code'] for t in album.tracks}, {'NO'})
-        self.assertEqual(album.tracks[0].metadata.getall('performer:vocals'), ['Ravn'])
-        self.assertEqual(album.tracks[0].metadata.getall('lyricist'), ['Destroyer'])
-        self.assertEqual(album.tracks[1].metadata.getall('performer:guest guitar'), ['Someone'])   # track 2 only
+        # credits: shown in the Metal Archives column, never written (plain tags, user)
+        ma1, ma2 = (t.source_metadata['Metal Archives'] for t in album.tracks[:2])
+        self.assertEqual(ma1.getall('performer:vocals'), ['Ravn'])
+        self.assertEqual(ma1.getall('lyricist'), ['Destroyer'])
+        self.assertEqual(ma2.getall('performer:guest guitar'), ['Someone'])   # track 2 only
+        self.assertFalse([t for t in album.tracks[0].metadata if t.startswith('performer:') or t == 'lyricist'])
         self.assertNotIn('performer:guest guitar', album.tracks[2].metadata)
         self.assertEqual(album.tracks[3].source_metadata['Metal Archives'].getall('performer:drums'), ['Frost'])
         src = album.tracks[3].source_metadata['Metal Archives']

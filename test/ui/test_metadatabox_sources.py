@@ -271,3 +271,16 @@ class TestSourceLength(PicardTestCase):
         self.assertTrue(sources.length_differs(['6:35'], ['339000']))      # MA 6:35 vs file 5:39
         self.assertFalse(sources.length_differs(['5:45'], ['339000']))     # 6 s: same track
         self.assertFalse(sources.length_differs([], ['339000']))
+
+
+class TestRowFilter(PicardTestCase):
+    def test_row_filter_limits_source_rows(self):
+        md = Metadata(title='t', **{'performer:guitar': 'X'})
+        obj = MagicMock(spec=['source_metadata'])
+        obj.source_metadata = {'MusicBrainz': md}
+        self.assertEqual(sources.source_tag_names([obj]), {'title', 'performer:guitar'})
+        sources.row_filter = lambda tag: not tag.startswith('performer:')
+        try:
+            self.assertEqual(sources.source_tag_names([obj]), {'title'})
+        finally:
+            sources.row_filter = None
