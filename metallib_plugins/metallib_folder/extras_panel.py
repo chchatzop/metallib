@@ -1,10 +1,11 @@
-# MetalLib -- the Extra files panel (next to the pressing lists) and what happens to those files on save.
+# MetalLib -- the Extra files panel (its own full-width row above the tag panel, user) and what
+# happens to those files on save.
 #
 # For the selected album: every non-audio file in its folder(s), subfolders included. Tick = moves
 # with the album; the name cell is editable (the library's "Front", "Back", "Booklet 03" ...), the
-# "Becomes" column shows the full new name. Clicking a row previews it beside the list (images;
-# .nfo/.txt/.log/.cue/.sfv/.m3u as text -- NFOs in the DOS character set, for their ASCII art);
-# double-click opens it full size. Picard's own "move additional files" is replaced for album files:
+# "Becomes" column shows the full new name. Clicking a file opens the preview window (a separate,
+# resizable window that remembers where it was; it follows the clicked file: images; .nfo/.txt/
+# .log/.cue/.sfv/.m3u as text -- NFOs in the DOS character set, for their ASCII art). Picard's own "move additional files" is replaced for album files:
 # after the album's audio is saved, ticked files move under their new names, the rest goes to
 # .metallib_trash (never audio), empty source folders are removed -- all logged, undoable from
 # "Folder contents..." -> "Undo last clean-up". Choices are not saved (like the pressing lists).
@@ -43,10 +44,10 @@ from .folder_scan import (
 )
 
 
-ROW_NAME = 'metallib_panel_row'          # the row the pressing lists live in (metallib_ma)
 USER_ATTR = 'metallib_extras_user'       # {path: {'tick': bool, 'stem': str}} on the Album
 SAVE_ATTR = 'metallib_extras_save'       # {'pending': set, 'folders': set} while an album saves
 LAYOUT_OPTION = 'extras_layout'
+PREVIEW_OPTION = 'extras_preview_geometry'
 TEXT_LIMIT = 512 * 1024
 _panel = None
 _api = None
@@ -166,30 +167,49 @@ class Preview(QtWidgets.QWidget):
         self._scale()
 
 
-class FullView(QtWidgets.QDialog):
-    """Double-click: the file at full size (scrollable) or the whole text."""
+class PreviewWindow(QtWidgets.QWidget):
+    """The preview as its own window (user): pops up when a file is clicked, follows the clicked file,
+    resizable (big = full size), remembers where it was. Closing it is fine: the next click reopens it."""
 
-    def __init__(self, parent, e):
-        super().__init__(parent)
-        self.setWindowTitle(e['name'])
+    def __init__(self, parent):
+        super().__init__(parent, QtCore.Qt.WindowType.Tool)
+        self.setWindowTitle('MetalLib — preview')
         layout = QtWidgets.QVBoxLayout(self)
-        if e['kind'] == IMAGE:
-            reader = QtGui.QImageReader(e['path'])
-            reader.setAutoTransform(True)
-            label = QtWidgets.QLabel()
-            label.setPixmap(QtGui.QPixmap.fromImage(reader.read()))
-            area = QtWidgets.QScrollArea()
-            area.setWidget(label)
-            area.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(area)
-        else:
-            text = QtWidgets.QPlainTextEdit(read_text(e['path']))
-            text.setReadOnly(True)
-            text.setFont(_mono())
-            text.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap)
-            layout.addWidget(text)
-        screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
-        self.resize(int(screen.width() * 0.7), int(screen.height() * 0.85))
+        layout.setContentsMargins(2, 2, 2, 2)
+        self.preview = Preview()
+        layout.addWidget(self.preview)
+        self.resize(560, 620)
+        self._restore()
+
+    def show_entry(self, e):
+        self.setWindowTitle('MetalLib — %s' % e['name'] if e else 'MetalLib — preview')
+        self.preview.show_entry(e)
+        if e is not None and not self.isVisible():
+            self.show()
+
+    def _restore(self):
+        import base64
+        try:
+            geometry = _api.plugin_config[PREVIEW_OPTION]
+            if geometry:
+                self.restoreGeometry(QtCore.QByteArray(base64.b64decode(geometry)))
+        except (KeyError, ValueError, TypeError):
+            pass
+
+    def _remember(self):
+        import base64
+        try:
+            _api.plugin_config[PREVIEW_OPTION] = base64.b64encode(bytes(self.saveGeometry())).decode('ascii')
+        except (KeyError, RuntimeError):
+            pass
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._remember()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._remember()
 
 
 def _size(n):
@@ -213,9 +233,6 @@ class ExtrasPanel(QtWidgets.QWidget):
         self.title = QtWidgets.QLabel('Extra files — select an album')
         self.title.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Fixed)
         layout.addWidget(self.title, 0)
-        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
-        self.splitter.setObjectName('metallib_extras_split')
-        self.splitter.setChildrenCollapsible(False)
         self.table = QtWidgets.QTableWidget(0, len(COLS))
         self.table.setHorizontalHeaderLabels(COLS)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -228,13 +245,9 @@ class ExtrasPanel(QtWidgets.QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemChanged.connect(self._changed)
         self.table.currentCellChanged.connect(self._current)
-        self.table.cellDoubleClicked.connect(self._double)
-        self.preview = Preview()
-        self.splitter.addWidget(self.table)
-        self.splitter.addWidget(self.preview)
-        self.splitter.setStretchFactor(0, 3)
-        self.splitter.setStretchFactor(1, 2)
-        layout.addWidget(self.splitter, 1)
+        self.table.cellClicked.connect(self._clicked)
+        self.preview = None                   # the preview window, made on the first click
+        layout.addWidget(self.table, 1)
         self._filling = False
 
     def show_album(self, album):
@@ -250,7 +263,6 @@ class ExtrasPanel(QtWidgets.QWidget):
         if album is None or album.id not in _api.tagger.albums:
             self.entries = []
             self.title.setText('Extra files — select an album')
-            self.preview.show_entry(None)
             self._filling = False
             return
         self.entries = planned(album)
@@ -300,11 +312,7 @@ class ExtrasPanel(QtWidgets.QWidget):
         self.title.setToolTip('\n'.join(where) + ('\n→ ' + dest if dest else ''))
         self._filling = False
         if self.entries:
-            row = min(max(current, 0), len(self.entries) - 1)
-            self.table.setCurrentCell(row, C_FILE)
-            self.preview.show_entry(self.entries[row])
-        else:
-            self.preview.show_entry(None)
+            self.table.setCurrentCell(min(max(current, 0), len(self.entries) - 1), C_FILE)
 
     def _choice(self, e):
         user = getattr(self.album, USER_ATTR, None)
@@ -326,13 +334,21 @@ class ExtrasPanel(QtWidgets.QWidget):
             return
         QtCore.QTimer.singleShot(0, self.refresh)
 
-    def _current(self, row, col, prev_row, prev_col):
-        if not self._filling and 0 <= row < len(self.entries) and row != prev_row:
+    def _show(self, row):
+        if 0 <= row < len(self.entries):
+            if self.preview is None:
+                self.preview = PreviewWindow(self.window())
             self.preview.show_entry(self.entries[row])
 
-    def _double(self, row, col):
-        if col != C_STEM and 0 <= row < len(self.entries):
-            FullView(self, self.entries[row]).show()
+    def _clicked(self, row, col):
+        if col != C_TICK:                     # a click on the tick box only ticks
+            self._show(row)
+
+    def _current(self, row, col, prev_row, prev_col):
+        # arrow keys: the open preview follows (it only pops up by itself on a click)
+        if (not self._filling and row != prev_row and self.preview is not None
+                and self.preview.isVisible()):
+            self._show(row)
 
 
 def _is_audio(e):
@@ -435,19 +451,6 @@ def _panel_refresh(album):
 
 # -- install ---------------------------------------------------------------------------------------------
 
-def _row(window):
-    for sp in window.findChildren(QtWidgets.QSplitter, ROW_NAME):
-        return sp
-    rows = window.panel.parentWidget()
-    if not isinstance(rows, QtWidgets.QSplitter):
-        return None
-    row = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
-    row.setObjectName(ROW_NAME)
-    row.setChildrenCollapsible(False)
-    rows.insertWidget(rows.indexOf(window.panel) + 1, row)
-    return row
-
-
 def _restore_layout(splitters):
     import base64
     import json
@@ -481,13 +484,20 @@ def install(api, log_factory, tries=100):
         return
     if _panel is not None:
         return
-    row = _row(window)
-    if row is None:
+    rows = window.panel.parentWidget()        # Picard's vertical splitter: [panes, (pressings), tag panel]
+    if not isinstance(rows, QtWidgets.QSplitter):
         return
     _panel = ExtrasPanel()
-    row.addWidget(_panel)                     # to the right of the pressing lists
+    # its own full-width row right above the tag panel (user: names are wide), below the pressings
+    before = rows.sizes()
+    rows.insertWidget(rows.count() - 1, _panel)
+    rows.setStretchFactor(rows.indexOf(_panel), 0)
+    if before and before[-1] > 300:
+        # first layout (a saved one replaces it): a few rows' worth, taken from the tag panel
+        sizes = before[:-1] + [140, before[-1] - 140]
+        rows.setSizes(sizes)
     window.selection_updated.connect(_on_selection)
-    splitters = (row, _panel.splitter)
+    splitters = (rows,)
     for delay in (0, 1500):                   # after Picard's and the pressing panel's own restore
         QtCore.QTimer.singleShot(delay, partial(_restore_layout, splitters))
     for sp in splitters:
@@ -506,6 +516,8 @@ def uninstall():
         _api.tagger.window.selection_updated.disconnect(_on_selection)
     except (TypeError, RuntimeError):
         pass
+    if _panel.preview is not None:
+        _panel.preview.close()
     _panel.setParent(None)
     _panel.deleteLater()
     _panel = None
