@@ -5,7 +5,10 @@
 # with the album; the name cell is editable (the library's "Front", "Back", "Booklet 03" ...), the
 # "Becomes" column shows the full new name. Clicking a file opens the preview window (a separate,
 # resizable window that remembers where it was; it follows the clicked file: images; .nfo/.txt/
-# .log/.cue/.sfv/.m3u as text -- NFOs in the DOS character set, for their ASCII art). Picard's own "move additional files" is replaced for album files:
+# .log/.cue/.sfv/.m3u as text -- NFOs in the DOS character set, for their ASCII art).
+# The Front (user): the image named "Front" is the album's embedded cover (shown in New Cover Art
+# at once); an album without any image gets its cover (Metal Archives / MusicBrainz) written as
+# "<prefix> - 00 - Front.jpg" when saved. Picard's own "move additional files" is replaced for album files:
 # after the album's audio is saved, ticked files move under their new names, the rest goes to
 # .metallib_trash (never audio), empty source folders are removed -- all logged, undoable from
 # "Folder contents..." -> "Undo last clean-up". Choices are not saved (like the pressing lists).
@@ -13,6 +16,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import os
+import re
 from functools import partial
 
 from PyQt6 import (
@@ -84,6 +88,62 @@ def destination(album):
         return None, None, False
     prefix, multi = prefix_of(new)
     return os.path.dirname(new), prefix, multi
+
+
+# -- the Front ---------------------------------------------------------------------------------------------
+
+_FRONT_FILE_RE = re.compile(r' - (?:\d+-)?00 - Front\.[A-Za-z]{3,4}$')
+
+
+def front_entry(entries):
+    return next((e for e in entries if e['tick'] and e['kind'] == IMAGE and e['stem'].lower() == 'front'), None)
+
+
+def album_front(album):
+    return next((img for img in album.metadata.images if img.is_front_image()), None)
+
+
+def embed_front(album, entries):
+    """The image named Front becomes the album's front cover (embedded when saved). -> True if changed."""
+    e = front_entry(entries)
+    if e is None:
+        return False
+    try:
+        with open(e['path'], 'rb') as fh:
+            data = fh.read()
+    except OSError:
+        return False
+    current = album_front(album)
+    if current is not None and current.data == data:
+        return False
+    from picard.coverart.image import CoverArtImage
+    from picard.coverart.setters import (
+        CoverArtSetter,
+        CoverArtSetterMode,
+    )
+    image = CoverArtImage(url=QtCore.QUrl.fromLocalFile(e['path']).toString(), types=['front'], data=data)
+    CoverArtSetter(CoverArtSetterMode.REPLACE, image, album).set_coverart()
+    return True
+
+
+def write_front_file(album, dest, prefix, multi):
+    """No image moved with the album and none named Front in its folder: write the album's cover
+    there as the library's Front file. -> the new path, or None."""
+    try:
+        if any(_FRONT_FILE_RE.search(f) for f in os.listdir(dest)):
+            return None
+    except OSError:
+        return None
+    image = album_front(album)
+    data = image.data if image is not None else None
+    if not data:
+        return None
+    path = os.path.join(dest, target_name(prefix, multi, 'Front', image.extension or '.jpg'))
+    if os.path.exists(path):
+        return None
+    with open(path, 'wb') as fh:
+        fh.write(data)
+    return path
 
 
 # -- preview ---------------------------------------------------------------------------------------------
@@ -266,6 +326,7 @@ class ExtrasPanel(QtWidgets.QWidget):
             self._filling = False
             return
         self.entries = planned(album)
+        embed_front(album, self.entries)
         dest, prefix, multi = destination(album)
         grey = self.palette().color(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text)
         self.table.setRowCount(len(self.entries))
@@ -303,12 +364,19 @@ class ExtrasPanel(QtWidgets.QWidget):
         head = 'Extra files in %s' % (where[0] if where else '?')
         if len(where) > 1:
             head += ' (+%d)' % (len(where) - 1)
-        if blocked:
-            self.title.setText('%s — this folder has other music too: extra files are left alone' % head)
-        elif not self.entries:
-            self.title.setText('%s — none' % head)
+        if not any(e['tick'] and e['kind'] == IMAGE for e in self.entries):
+            cover = ' — no image: the album cover will be saved as Front'
+        elif front_entry(self.entries):
+            cover = ' — Front is the embedded cover'
         else:
-            self.title.setText('%s — %d move with the album, %d to trash when saved' % (head, moving, trashed))
+            cover = ''
+        if blocked:
+            self.title.setText('%s — this folder has other music too: extra files are left alone%s' % (head, cover))
+        elif not self.entries:
+            self.title.setText('%s — none%s' % (head, cover))
+        else:
+            self.title.setText('%s — %d move with the album, %d to trash when saved%s'
+                               % (head, moving, trashed, cover))
         self.title.setToolTip('\n'.join(where) + ('\n→ ' + dest if dest else ''))
         self._filling = False
         if self.entries:
@@ -393,6 +461,7 @@ def on_file_saving(api, file):
     if st is None:
         st = {'pending': set(), 'folders': set()}
         setattr(album, SAVE_ATTR, st)
+        embed_front(album, planned(album))    # the image named Front is the cover written into the tags
     st['pending'].add(id(file))
     st['folders'].update(source_folders([file]))
 
@@ -410,18 +479,11 @@ def on_file_saved(api, file):
 
 
 def run_extras(album, folders):
-    """After the album's audio was saved: carry out the extra-files plan for its old folder(s)."""
+    """After the album's audio was saved: carry out the extra-files plan for its old folder(s), then
+    make sure the new folder has a Front."""
     from picard.config import get_config
     setting = get_config().setting
     if not (setting['move_files'] or setting['rename_files']):
-        return
-    entries = planned(album, folders)
-    if not entries:
-        _panel_refresh(album)
-        return
-    if foreign_audio(entries):
-        _status('extra files left alone: the old folder also holds music that is not in this album')
-        _panel_refresh(album)
         return
     files = list(album.iterfiles())
     if not files:
@@ -431,11 +493,25 @@ def run_extras(album, folders):
     if not prefix:
         _status('extra files left alone: the track names have no " - NN - " part to name them after')
         return
-    done = execute(entries, prefix, multi, dest, _log_factory(), new_batch(), move_file, move_to_trash)
-    msg = 'extra files: %d moved, %d to trash' % (len(done['moved']), len(done['trashed']))
-    if done['errors']:
-        msg += ', %d left alone (%s)' % (len(done['errors']), done['errors'][0])
-    _status(msg + ' — undo: Folder contents... → Undo last clean-up')
+    entries = planned(album, folders)
+    msg = []
+    if entries and foreign_audio(entries):
+        msg.append('extra files left alone: the old folder also holds music that is not in this album')
+    elif entries:
+        done = execute(entries, prefix, multi, dest, _log_factory(), new_batch(), move_file, move_to_trash)
+        text = 'extra files: %d moved, %d to trash' % (len(done['moved']), len(done['trashed']))
+        if done['errors']:
+            text += ', %d left alone (%s)' % (len(done['errors']), done['errors'][0])
+        msg.append(text + ' — undo: Folder contents... → Undo last clean-up')
+    try:
+        written = write_front_file(album, dest, prefix, multi)
+    except OSError as e:
+        written = None
+        msg.append('the cover could not be saved as Front: %s' % e)
+    if written:
+        msg.append('cover saved as %s' % os.path.basename(written))
+    if msg:
+        _status('; '.join(msg))
     setattr(album, USER_ATTR, None)
     _panel_refresh(album)
 
