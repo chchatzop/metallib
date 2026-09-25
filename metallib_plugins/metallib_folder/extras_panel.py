@@ -49,7 +49,7 @@ from .folder_scan import (
 
 
 USER_ATTR = 'metallib_extras_user'       # {path: {'tick': bool, 'stem': str}} on the Album
-SAVE_ATTR = 'metallib_extras_save'       # {'pending': set, 'folders': set} while an album saves
+SAVE_ATTR = 'metallib_extras_save'       # the album's save state while its files save (see _saving)
 LAYOUT_OPTION = 'extras_layout'
 PREVIEW_OPTION = 'extras_preview_geometry'
 COLUMNS_OPTION = 'extras_columns'
@@ -493,43 +493,77 @@ def _move_additional_files(self, old_filename, new_filename, config):
         return _originals['move_additional_files'](self, old_filename, new_filename, config)
 
 
+# One save of an album = the files whose save started together (pre-save runs on the main thread,
+# file by file, as Picard starts them). The step runs once every one of them has FINISHED -- saved,
+# failed or skipped (audit part 2 M2: waiting for post-save alone hung forever after a failed save,
+# since Picard runs post-save processors only on success). Keyed by the file, not its album, since
+# "Remove complete albums after saving" can take the album away before the post-save hooks run.
+_saving = {}                                # id(file) -> the album's save state
+_POLL_MS = 400
+
+
 def on_file_saving(api, file):
     album = _album_of_file(file)
     if album is None:
         return
     st = getattr(album, SAVE_ATTR, None)
     if st is None:
-        st = {'pending': set(), 'folders': set()}
+        st = {'album': album, 'files': [], 'folders': set(), 'saved': []}
         setattr(album, SAVE_ATTR, st)
         embed_front(album, planned(album))    # the image named Front is the cover written into the tags
-    st['pending'].add(id(file))
+        QtCore.QTimer.singleShot(_POLL_MS, partial(_check_done, st))
+    st['files'].append(file)
     st['folders'].update(source_folders([file]))
+    _saving[id(file)] = st
 
 
 def on_file_saved(api, file):
-    album = _album_of_file(file)
-    st = getattr(album, SAVE_ATTR, None) if album is not None else None
-    if st is None:
-        return
-    st['pending'].discard(id(file))
-    if st['pending']:
-        return
-    setattr(album, SAVE_ATTR, None)
-    QtCore.QTimer.singleShot(0, partial(run_extras, album, sorted(st['folders'])))
+    st = _saving.pop(id(file), None)
+    if st is not None:
+        st['saved'].append(file.filename)
 
 
-def run_extras(album, folders):
+def _check_done(st):
+    from picard.file import File
+    still = [f for f in st['files'] if id(f) in _saving and f.state == File.State.PENDING]
+    if still:
+        QtCore.QTimer.singleShot(_POLL_MS, partial(_check_done, st))
+        return
+    album = st['album']
+    failed = [f for f in st['files'] if id(f) in _saving]          # finished without a post-save
+    for f in failed:
+        _saving.pop(id(f), None)
+    if getattr(album, SAVE_ATTR, None) is st:
+        setattr(album, SAVE_ATTR, None)                              # the next save starts afresh
+    if failed:
+        _status('extra files not moved: %d track(s) did not save — fix that and save the album again'
+                % len(failed))
+        return
+    saved = set(st['files'])
+    old = [os.path.normcase(os.path.normpath(d)) for d in st['folders']]
+
+    def in_old(path):
+        d = os.path.normcase(os.path.dirname(path))
+        return any(d == o or d.startswith(o + os.sep) for o in old)     # disc folders too
+    waiting = [f for f in album.iterfiles() if f not in saved and in_old(f.filename)]
+    if waiting:
+        # a partial save: the rest of the album still lives in the old folder with the extras
+        _status('extra files wait until the whole album is saved (%d track(s) still in the old folder)'
+                % len(waiting))
+        return
+    run_extras(album, sorted(st['folders']), st['saved'])
+
+
+def run_extras(album, folders, saved):
     """After the album's audio was saved: carry out the extra-files plan for its old folder(s), then
-    make sure the new folder has a Front."""
+    make sure the new folder has a Front. `saved`: the new paths of the files this save wrote -- they
+    name the destination (not album.iterfiles(): the album may be gone, or hold unsaved files)."""
     from picard.config import get_config
     setting = get_config().setting
-    if not (setting['move_files'] or setting['rename_files']):
+    if not (setting['move_files'] or setting['rename_files']) or not saved:
         return
-    files = list(album.iterfiles())
-    if not files:
-        return
-    prefix, multi = prefix_of(files[0].filename)
-    dest = os.path.dirname(files[0].filename)
+    prefix, multi = prefix_of(saved[0])
+    dest = os.path.dirname(saved[0])
     if not prefix:
         _status('extra files left alone: the track names have no " - NN - " part to name them after')
         return
