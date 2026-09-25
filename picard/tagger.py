@@ -75,6 +75,7 @@ from PyQt6 import (
 from picard import (
     PICARD_APP_ID,
     PICARD_APP_NAME,
+    PICARD_DISPLAY_NAME,
     PICARD_FANCY_VERSION_STR,
     PICARD_ORG_NAME,
     acoustid,
@@ -1673,7 +1674,7 @@ def show_standalone_messagebox(message, informative_text=None):
         app = QtWidgets.QApplication(sys.argv)
     msgbox = QtWidgets.QMessageBox()
     msgbox.setIcon(QtWidgets.QMessageBox.Icon.Information)
-    msgbox.setWindowTitle(f"{PICARD_ORG_NAME} {PICARD_APP_NAME}")
+    msgbox.setWindowTitle(f"{PICARD_DISPLAY_NAME}")
     msgbox.setTextFormat(QtCore.Qt.TextFormat.PlainText)
     font = msgbox.font()
     font.setFamily(FONT_FAMILY_MONOSPACE)
@@ -1879,7 +1880,7 @@ def main(localedir=None, autoupdate=True):
     if cmdline_args.long_version:
         print_message_and_exit(versions.as_string())
     if cmdline_args.version:
-        print_message_and_exit(f"{PICARD_ORG_NAME} {PICARD_APP_NAME} {PICARD_FANCY_VERSION_STR}")
+        print_message_and_exit(f"{PICARD_DISPLAY_NAME} {PICARD_FANCY_VERSION_STR}")
     if cmdline_args.remote_commands_help:
         print_help_for_commands()
     if cmdline_args.processable:

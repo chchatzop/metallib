@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import sys
 
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'metallib_folder'))
 import folder_scan as fs  # noqa: E402
@@ -88,6 +90,7 @@ def test_undo_never_overwrites(tmp_path, monkeypatch):
     assert Path(nfo).read_text() == 'new file with the same name'
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='checks Windows paths')  # audit L9/L7
 def test_trash_root():
     assert fs.trash_root(r'H:\1 New\x\y.nfo') == 'H:' + os.sep
     unc = '\\\\NAStradamus\\data\\usenet\\x.nfo'

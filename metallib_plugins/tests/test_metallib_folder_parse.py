@@ -74,6 +74,7 @@ def test_media_hint_understands_underscores():
 
 
 class TestClusteringUntaggedFiles(PicardTestCase):
+    @pytest.mark.skipif(sys.platform != 'win32', reason='checks Windows paths')  # audit L9/L7
     def test_untagged_scene_files_cluster_under_band_and_album(self):
         mod = _pkg()
         from picard.util import album_artist_from_path

@@ -5,6 +5,8 @@ from pathlib import Path
 import sys
 from unittest.mock import MagicMock
 
+import pytest
+
 from test.picardtestcase import PicardTestCase
 
 from picard.config import Option
@@ -455,6 +457,7 @@ def test_pressing_ranking_clues_do_not_follow_new_value():
     assert panel.local_info(album)['track_count'] == 3                # files/lengths stay current
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='checks Windows paths')  # audit L9/L7
 def test_pressings_title_names_the_album_folder():
     import importlib
     _pressings()

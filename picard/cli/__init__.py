@@ -33,9 +33,8 @@ from importlib import import_module
 import sys
 
 from picard import (
-    PICARD_APP_NAME,
+    PICARD_DISPLAY_NAME,
     PICARD_FANCY_VERSION_STR,
-    PICARD_ORG_NAME,
 )
 from picard.util import versions
 
@@ -122,7 +121,7 @@ def build_root_parser():
         '-v',
         '--version',
         action='version',
-        version=f"{PICARD_ORG_NAME} {PICARD_APP_NAME} {PICARD_FANCY_VERSION_STR}",
+        version=f"{PICARD_DISPLAY_NAME} {PICARD_FANCY_VERSION_STR}",
     )
     parser.add_argument(
         '-V',

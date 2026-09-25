@@ -189,6 +189,7 @@ class LayoutScript(PicardTestCase):
 
 
 class CatnumTag(PicardTestCase):
+    @pytest.mark.skipif(sys.platform != 'win32', reason='checks Windows paths')  # audit L9/L7
     def test_catnum_is_the_folder_bracket(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location('picard.plugins.metallib_naming_test', PLUGIN_DIR / '__init__.py',
