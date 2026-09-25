@@ -356,6 +356,7 @@ def test_pressings_short_label_for_column_header():
     assert p.short_label(p.candidate('MusicBrainz', 'x', '2019-10-18', 'CD', 'Season of Mist', 'SOM532B', 'XE')) == \
         'CD · SOM532B · 2019 · XE'
     assert p.short_label(p.candidate('Metal Archives', 1, '', 'Digital')) == 'Digital'
+    assert p.short_label(p.candidate('Metal Archives', 1, 'Unknown', 'CD', '', 'S810-8')) == 'CD · S810-8'
 
 
 def test_pair_by_position_when_a_differing_length_has_the_same_title():

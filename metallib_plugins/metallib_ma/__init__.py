@@ -521,6 +521,10 @@ def on_mb_album(api, album, metadata, release_node):
     rg = (release_node.get('release-group') or {}).get('id')
     if rg:
         _when_loaded(album, partial(list_mb_pressings, album, rg, release_node['id'], _release_seconds(release_node)))
+    st = pressings_panel.state(album)[MUSICBRAINZ]
+    if st.get('user_picked') and st.get('chosen') not in (None, release_node['id']):
+        # (its own column was just rebuilt from the album's release, so load the user's one back)
+        _when_loaded(album, partial(pressings_panel.load, album, MUSICBRAINZ, st['chosen']))
 
 
 def _release_seconds(node):
@@ -569,7 +573,7 @@ def _on_background_ma(album, result=None, error=None):
     mds = track_metadata(node, fix=partial(_ma_fix, page['album_id'], band, page.get('lineup') or []))
 
     def apply():
-        if pressings_panel.blocked(album, METAL_ARCHIVES):
+        if pressings_panel.blocked(album, METAL_ARCHIVES) or pressings_panel.keep_user_pick(album, METAL_ARCHIVES):
             return
         n = attach(album, METAL_ARCHIVES, mds)
         apply_rules(album)
@@ -679,7 +683,7 @@ def _use_mb_release(album, node, fitted=True):
                 del md[tag]
 
     def apply():
-        if pressings_panel.blocked(album, MUSICBRAINZ):
+        if pressings_panel.blocked(album, MUSICBRAINZ) or pressings_panel.keep_user_pick(album, MUSICBRAINZ):
             return
         n = attach(album, MUSICBRAINZ, mds)
         apply_rules(album)
@@ -1008,7 +1012,7 @@ def _on_discogs(album, result=None, error=None):
     mds = track_metadata(built['node'], fix=partial(_dg_fix, built))
     lengths = pressings_panel.local_info(album)['lengths']
     items = from_discogs(versions) + [_dg_release_candidate(result, lengths)]
-    if pressings_panel.blocked(album, DISCOGS):
+    if pressings_panel.blocked(album, DISCOGS) or pressings_panel.keep_user_pick(album, DISCOGS):
         pressings_panel.record(album, DISCOGS, items)       # the list, but the user's row stays
         return
     n = attach(album, DISCOGS, mds)

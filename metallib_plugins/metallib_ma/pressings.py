@@ -163,4 +163,5 @@ def better_pick(candidates, chosen_id, want):
 
 def short_label(c):
     """What a source column shows, for its header: "CD · SOM 532B · 2019 · XE"."""
-    return ' · '.join(p for p in (c['format'], c['catalog'], c['date'][:4], c['country']) if p)
+    year = c['date'][:4] if c['date'][:4].isdigit() else ''       # not "Unkn" for an unknown date
+    return ' · '.join(p for p in (c['format'], c['catalog'], year, c['country']) if p)

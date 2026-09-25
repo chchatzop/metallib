@@ -131,6 +131,19 @@ def blocked(album, source):
     return mode(album, source) is not None
 
 
+def keep_user_pick(album, source):
+    """A background result arrived for `source`. True when the user clicked a pressing there: the
+    result is not used (audit part 1 L1). If the column lost the user's pressing meanwhile -- Refresh
+    rebuilds the tracks -- that pressing is loaded back, so column and highlight agree."""
+    st = state(album)[source]
+    chosen = st.get('chosen')
+    if not st.get('user_picked') or not chosen or chosen in (ALBUM_ONLY, OFF):
+        return False
+    if any(source not in (getattr(t, 'source_metadata', None) or {}) for t in album.tracks):
+        load(album, source, chosen)
+    return True
+
+
 def set_mode(album, source, which):
     """The user picked "Album info only" / "Don't use this source": change that source's column
     on every track, then New Value by the rules (which fall back to the files' own values)."""
@@ -250,6 +263,9 @@ def _filled(album, source, result=None, error=None):
 
 def load(album, source, cid):
     from . import _status
+    # Only the pressing asked for LAST may land (audit part 1 L2): an automatic switch that finishes
+    # after the user's click, or an earlier click that finishes later, is dropped in _apply.
+    state(album)[source]['wanted'] = str(cid)
     _status('loading %s pressing %s...' % (source, cid))
     if source == 'Metal Archives':
         pools.run(pools.MA, partial(_fetch_ma, cid), partial(_loaded_ma, album, cid), pools.USER)
@@ -343,6 +359,8 @@ def _apply(album, source, cid, mds, attach, apply_rules):
     )
     if album.id not in _api.tagger.albums:
         return
+    if state(album)[source].get('wanted') not in (None, str(cid)):
+        return                          # another pressing was asked for since
     n = attach(album, source, mds)
     apply_rules(album)
     set_chosen(album, source, cid)
