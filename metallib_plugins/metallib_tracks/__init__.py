@@ -188,7 +188,14 @@ def _send_back(album, files, reason):
         f.move(tagger.unclustered_files)
         _set_flag(f, UNPLACED, reason)
     tagger.remove_album(album)
-    tagger.cluster(files)
+
+    def clustered():
+        # Try Metal Archives for them (the MetalLib MA plugin; once per set of files, so no loop).
+        fallback = getattr(tagger, 'metallib_fallback_lookup', None)
+        if fallback is not None:
+            for cluster in {f.parent_item for f in files if f.parent_item in tagger.clusters}:
+                fallback(cluster, reason)
+    tagger.cluster(files, callback=clustered)
     tagger.window.set_statusbar_message("MetalLib: %s -- files sent back to clustering", reason)
 
 

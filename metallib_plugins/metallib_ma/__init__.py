@@ -560,6 +560,8 @@ def start_mb_lookup(album, band, title):
 
 def _on_mb_search(album, band, title, count, document=None, http=None, error=None):
     if error or not document:
+        if not error:
+            _when_loaded(album, lambda: pressings_panel.nothing_found(album, MUSICBRAINZ))
         return
     # Several MB releases usually share a tracklist (CD, reissues, digital), so durations alone
     # cannot tell them apart: prefer the one on the MA pressing's media, then its year.
@@ -582,6 +584,7 @@ def _on_mb_search(album, band, title, count, document=None, http=None, error=Non
         _fetch_mb_release(album, ids, [])
     else:
         _status('MusicBrainz has no release matching "%s" by %s' % (title, band))
+        _when_loaded(album, lambda: pressings_panel.nothing_found(album, MUSICBRAINZ))
 
 
 def _fetch_mb_release(album, ids, fetched):
@@ -934,6 +937,7 @@ def _on_discogs(album, result=None, error=None):
         return
     if not result:
         _status('Discogs: no release clearly matching "%s"' % album.metadata['album'])
+        pressings_panel.nothing_found(album, DISCOGS)
         return
     versions, result = result['versions'], result['release']
     built = build_node(result)
@@ -1015,6 +1019,39 @@ def _pick(title, headers, rows, preselect=0):
     if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or not table.selectedItems():
         return None
     return table.currentRow()
+
+
+# -- Lookup falls through to Metal Archives (user, 2026-09-25) ----------------------------------------
+# Picard's Lookup asks MusicBrainz only. When it finds no release for a cluster, or the wrong-release
+# guard (metallib_tracks) sends the files back, the cluster is looked up on Metal Archives instead --
+# once per set of files, so a release neither source has cannot loop.
+
+_TRIED_ATTR = 'metallib_ma_fallback_tried'
+
+
+def fallback_lookup(cluster, why):
+    files = list(cluster.iterfiles())
+    if not files or cluster.special or all(getattr(f, _TRIED_ATTR, False) for f in files):
+        return False
+    for f in files:
+        setattr(f, _TRIED_ATTR, True)
+    _api.logger.info("MetalLib: %s -> trying Metal Archives for %r", why, cluster.metadata['album'])
+    start_lookup(cluster)
+    return True
+
+
+_orig_lookup_finished = None
+
+
+def _cluster_lookup_finished(self, document, http, error):
+    _orig_lookup_finished(self, document, http, error)
+    if error:
+        return                                  # MusicBrainz unreachable: not "MusicBrainz has nothing"
+    try:
+        if self.files and self in self.tagger.clusters:
+            fallback_lookup(self, 'no MusicBrainz release')
+    except Exception:
+        _api.logger.exception("Metal Archives fallback failed for %r", self)
 
 
 class LoadFromMetalArchives(BaseAction):
@@ -1168,15 +1205,23 @@ def disable() -> None:
     from picard import cluster as picard_cluster
     if 'album_artist_from_path' in _originals:
         picard_cluster.album_artist_from_path = _originals['album_artist_from_path']
+    if _orig_lookup_finished is not None:
+        picard_cluster.Cluster._lookup_finished = _orig_lookup_finished
+    if getattr(_api.tagger, 'metallib_fallback_lookup', None) is fallback_lookup:
+        del _api.tagger.metallib_fallback_lookup
 
 
 def enable(api: PluginApi) -> None:
-    global _api
+    global _api, _orig_lookup_finished
     _api = api
     api.register_cluster_action(LoadFromMetalArchives)
     from picard import cluster as picard_cluster
     _originals['album_artist_from_path'] = picard_cluster.album_artist_from_path
     picard_cluster.album_artist_from_path = _album_artist_from_path
+    # Lookup: no MusicBrainz release -> Metal Archives; the wrong-release guard uses the same door.
+    _orig_lookup_finished = picard_cluster.Cluster._lookup_finished
+    picard_cluster.Cluster._lookup_finished = _cluster_lookup_finished
+    api.tagger.metallib_fallback_lookup = fallback_lookup
     api.plugin_config.register_option('discogs_token', '')
     api.plugin_config.register_option(pressings_panel.LAYOUT_OPTION, '')
     api.register_options_page(MetalLibOptionsPage)

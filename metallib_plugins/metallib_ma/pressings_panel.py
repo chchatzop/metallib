@@ -102,6 +102,12 @@ def record(album, source, items, chosen=None, extra=None, fill=True):
         _start_fill(album, source)
 
 
+def nothing_found(album, source):
+    """The source was searched and has nothing for this album (the list says so instead of "yet")."""
+    state(album)[source]['nothing'] = True
+    refresh(album)
+
+
 def note(album, source, cid, track_count=None, fits=None):
     """What a fetched pressing turned out to be (its track count, whether its lengths fit)."""
     for c in state(album)[source]['items']:
@@ -454,7 +460,7 @@ class PressingsPanel(QtWidgets.QWidget):
             line.setFlags(QtCore.Qt.ItemFlag.NoItemFlags)       # a divider, not selectable
             lst.addItem(line)
             if not ranked:
-                lst.addItem('(none found yet)')
+                lst.addItem('(nothing found)' if st.get('nothing') else '(none found yet)')
                 continue
             for c, greyed in ranked:
                 text = describe(c, local['track_count'])
