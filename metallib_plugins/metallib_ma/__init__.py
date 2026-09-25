@@ -49,6 +49,7 @@ from .ma_release import (
     ma_date,
     mb_genres,
     narrow_pressings,
+    original_date,
     rank_hits,
     title_key,
     title_score,
@@ -131,7 +132,7 @@ def _fetch_pressing(pressing_id):
     except MAError:
         versions = []
     version = next((v for v in versions if str(v['album_id']) == str(pressing_id)), None)
-    original = min((ma_date(v['date']) for v in versions if ma_date(v['date'])), default='')
+    original = original_date([ma_date(v['date']) for v in versions])
     info = {'album_id': page['album_id'], 'band_id': page['band_id'], 'cover_url': page['cover_url'],
             'band': _band_info(page['band_id']), 'lineup': page.get('lineup') or []}
     return {'node': build_release(page, version, original), 'info': info}
@@ -258,7 +259,7 @@ def _resolve(hit, local, max_fetches=MAX_PRESSING_FETCHES):
         page = base if v['album_id'] == base['album_id'] else client().album(v['album_id'])
         lengths = [t['length'] for t in page['tracks']]
         checked.append({'version': v, 'page': page, 'fits': fits(lengths, local['lengths'])})
-    original = min((ma_date(v['date']) for v in versions if ma_date(v['date'])), default='')
+    original = original_date([ma_date(v['date']) for v in versions])
     try:
         band = client().band(base['band_id'] or hit['band_id'])
     except MAError:
@@ -1078,7 +1079,7 @@ def _versions_of(pressing_id):
 def _restored_versions(album, pressing_id, result=None, error=None):
     if error or not result or album.id not in _api.tagger.albums:
         return
-    original = min((ma_date(v['date']) for v in result if ma_date(v['date'])), default='')
+    original = original_date([ma_date(v['date']) for v in result])
     pressings_panel.record(album, METAL_ARCHIVES, from_ma(result), pressing_id,
                            {'versions': result, 'original_date': original,
                             'band': (album.ma_info or {}).get('band') or {}})

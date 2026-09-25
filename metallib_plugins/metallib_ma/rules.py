@@ -26,9 +26,10 @@ MB_FIRST_PREFIXES = ('musicbrainz_',)
 # whose date belongs to the pressing the user picked.
 DATE_TAGS = {'date', 'releasedate'}
 
-# First release: the EARLIEST year any source knows (a reissue's date must never become the
-# original -- it names the folder "YYYY - Album"), the most precise value within that year. Discogs
-# only when neither MA nor MB has one: its dates belong to a pressing, not the first release.
+# First release: Metal Archives' whenever it has one (user; MA's is the earliest of all its
+# versions). Else the EARLIEST year the others know (a reissue's date must never become the
+# original -- it names the folder "YYYY - Album"), the most precise value within that year; Discogs
+# only when MB has none: its dates belong to a pressing, not the first release.
 ORIGINAL_TAGS = {'originaldate', 'originalyear'}
 
 # A track's POSITION belongs to the album the files are matched to, never to another source's
@@ -74,6 +75,8 @@ def choose(tag, source_values):
     if not have:
         return None
     if tag in ORIGINAL_TAGS:
+        if MA in have and _year(have[MA][0]):
+            return MA, have[MA]
         known = ({n: v for n, v in have.items() if n != DG and _year(v[0])}
                  or {n: v for n, v in have.items() if _year(v[0])})
         if known:

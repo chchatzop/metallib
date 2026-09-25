@@ -141,6 +141,19 @@ _MEDIA = {DIGITAL: 'Digital Media', CD: 'CD', VINYL: 'Vinyl', TAPE: 'Cassette'}
 BONUS_SUFFIX = ' (Bonus Track)'
 
 
+def original_date(dates):
+    """The first release from MA's version dates (ma_date form): the earliest YEAR, and within it
+    the earliest of the most precise dates -- a version listed only as "2007" must not hide the
+    original's "2007-02-19" (plain text order would pick "2007")."""
+    dates = [d for d in dates if d and re.match(r'^\d{4}', d)]
+    if not dates:
+        return ''
+    year = min(d[:4] for d in dates)
+    same = [d for d in dates if d.startswith(year)]
+    most = max(len(d) for d in same)
+    return min(d for d in same if len(d) == most)
+
+
 def pressing_id_of(album_id):
     """The MA pressing id in a MetalLib album id, or None for any other id."""
     s = str(album_id or '')

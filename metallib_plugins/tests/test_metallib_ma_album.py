@@ -609,3 +609,8 @@ def test_releasecountry_is_the_bands_country():
     picked = _KeepFile(releasecountry='US')
     m._tidy_track(_KeepTrack([picked], **{'~ma_band_country_code': 'AR'}), {}, {'releasecountry': 'MusicBrainz'})
     assert picked.metadata['releasecountry'] == 'US'                        # picked by the user: stays
+
+def test_original_date_is_the_earliest_year_most_precise():
+    assert r.original_date(['2007', '2007-02-19', '2007-02-20', '2011-05']) == '2007-02-19'
+    assert r.original_date(['2008', '2007-03']) == '2007-03'
+    assert r.original_date(['', '1994']) == '1994' and r.original_date([]) == ''
