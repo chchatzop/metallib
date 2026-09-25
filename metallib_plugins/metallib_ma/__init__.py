@@ -621,10 +621,12 @@ def _fetch_mb_release(album, ids, fetched):
 def _on_mb_release(album, rest, fetched, document=None, http=None, error=None):
     if not error and document:
         fetched.append(document)
-        album_lengths = [round((t.metadata.length or 0) / 1000) for t in album.tracks]
         node_lengths = [round((t.get('length') or 0) / 1000)
                         for m in document.get('media') or [] for t in m.get('tracks') or []]
-        ok = bool(fits(node_lengths, album_lengths))
+        # Only real lengths confirm a release (its MusicBrainz ids are offered then): the files'
+        # (the album's where a track has none). A release -- or album -- without durations fits
+        # nothing: fits() alone passed on the track count (audit part 1 L7).
+        ok = judge(node_lengths, pressings_panel.local_info(album)['lengths']) is True
 
         def note_fit(document=document, node_lengths=node_lengths):
             files = pressings_panel.local_info(album)['lengths']       # the lists judge vs the files

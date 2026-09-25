@@ -661,3 +661,21 @@ def test_a_lookup_only_takes_the_files_still_in_the_cluster():
     removed = SimpleNamespace(parent_item=cluster, state=File.State.REMOVED)
     local = {'files': [stay, moved, removed], 'album': 'X'}
     assert m._files_still_there(cluster, local) == [stay]
+
+
+def test_a_musicbrainz_release_without_lengths_is_not_a_confirmed_match(monkeypatch):
+    # Audit part 1 L7: fits() passed on the track count alone, so a same-size release with no
+    # durations got its MusicBrainz ids written as if confirmed.
+    import importlib
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    used = []
+    monkeypatch.setattr(m, '_use_mb_release', lambda album, node, fitted=True: used.append(fitted))
+    monkeypatch.setattr(m, '_when_loaded', lambda album, func: None)
+    monkeypatch.setattr(m.pressings_panel, 'local_info', lambda album: {'lengths': [200, 300]})
+    no_lengths = {'id': 'r1', 'media': [{'tracks': [{'length': None}, {'length': None}]}]}
+    m._on_mb_release(object(), [], [], document=no_lengths)
+    fitting = {'id': 'r2', 'media': [{'tracks': [{'length': 201000}, {'length': 299000}]}]}
+    m._on_mb_release(object(), [], [], document=fitting)
+    assert used == [False, True]

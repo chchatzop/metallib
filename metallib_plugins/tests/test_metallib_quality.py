@@ -198,3 +198,15 @@ class TestQualityColumn(TestAlbumQualityInPicard):
         self.assertEqual(self._column(empty), '')
         self.assertEqual(self._column(cluster), 'V0')
         self.assertEqual(self._column(cf), 'V0')
+
+
+def test_lossless_by_format_not_by_bit_depth():
+    # Audit part 2 M4: mutagen gives AAC in .m4a a bit depth (16) too -- it was labelled "16-44".
+    import mutagen
+    plugin = _load_plugin_module()
+    aac = mutagen.File(str(Path(__file__).resolve().parents[2] / 'test' / 'data' / 'test.m4a'))
+    fmt = 'MPEG-4 Audio (%s)' % aac.info.codec_description
+    assert not plugin.is_lossless('.m4a', fmt, aac.info.bits_per_sample)
+    assert plugin.is_lossless('.m4a', 'MPEG-4 Audio (ALAC)', 16)
+    assert plugin.is_lossless('.FLAC', 'FLAC', 24) and not plugin.is_lossless('.flac', 'FLAC', 0)
+    assert not plugin.is_lossless('.ogg', 'Vorbis', 16)

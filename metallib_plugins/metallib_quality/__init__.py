@@ -56,11 +56,23 @@ def _int(value):
         return 0
 
 
+# Lossless by FORMAT, not by a bit depth being present: mutagen reports 16 bits for AAC in .m4a
+# too, which made AAC albums "[16-44]" (audit part 2 M4). MP4 is lossless only as ALAC.
+_LOSSLESS_EXTS = {'.flac', '.wav', '.aif', '.aiff', '.ape', '.tta', '.wv', '.dsf', '.dff'}
+
+
+def is_lossless(ext, fmt, bits):
+    ext = (ext or '').lower()
+    if ext in ('.m4a', '.mp4', '.alac'):
+        return bool(bits) and 'alac' in (fmt or '').lower()
+    return bool(bits) and ext in _LOSSLESS_EXTS
+
+
 def _read_quality(api, file):
     md = file.orig_metadata
     bits = _int(md['~bits_per_sample'])
     q = {
-        'lossless': bool(bits),
+        'lossless': is_lossless(os.path.splitext(file.filename)[1], md['~format'], bits),
         'bits': bits,
         'sample_rate': _int(md['~sample_rate']),
         'kbps': round(float(md['~bitrate'] or 0)),
