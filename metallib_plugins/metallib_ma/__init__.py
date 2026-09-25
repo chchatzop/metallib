@@ -344,14 +344,29 @@ def _on_search(cluster, local, result=None, error=None):
         return
     ranked = rank_hits(result, local['band'], local['album'])
     hit = auto_pick(ranked)
-    if hit is None:
-        # Best matches first, the best one preselected.
-        rows = [(h['band'], h['band_country'], h['album'], h['type'], '%d%%' % min(100, round(score * 100)))
-                for score, h in ranked]
-        i = _pick('Which Metal Archives album?', ('Band', 'Country', 'Album', 'Type', 'Title match'), rows)
-        if i is None:
-            return
-        hit = ranked[i][1]
+    if hit is not None:
+        return _start_resolve(cluster, local, hit)
+    # Best matches first, the best one preselected.
+    rows = [(h['band'], h['band_country'], h['album'], h['type'], '%d%%' % min(100, round(score * 100)))
+            for score, h in ranked]
+    _ask('Which Metal Archives album?', ('Band', 'Country', 'Album', 'Type', 'Title match'), rows,
+         lambda i: _start_resolve(cluster, local, ranked[i][1]), cluster, local)
+
+
+def _ask(title, headers, rows, then, cluster, local):
+    """The picker, opened OUTSIDE the task callback that needs it (audit part 1 L4): a dialog opened
+    inside Picard's callback batch froze every other completion -- file loads, saves, the tag panel --
+    until it closed. then(index) runs when a row was picked and the files are still there."""
+    from PyQt6 import QtCore
+
+    def open_it():
+        i = _pick(title, headers, rows)
+        if i is not None and not _gone(cluster, local):
+            then(i)
+    QtCore.QTimer.singleShot(0, open_it)
+
+
+def _start_resolve(cluster, local, hit):
     _status('loading "%s" and its pressings from Metal Archives...' % hit['album'])
     pools.run(pools.MA, partial(_resolve, hit, local), partial(_on_resolved, cluster, local, hit), pools.USER)
 
@@ -364,22 +379,22 @@ def _on_resolved(cluster, local, hit, result=None, error=None):
         return
     fitting = [c for c in result['checked'] if c['fits']]
     if len(fitting) == 1 and not result['more']:
-        chosen = fitting[0]
-    else:
-        # Best match first: pressings that fit the files, then the rest; the first is preselected.
-        want = len(local['files'])
-        rest = [c for c in result['checked'] if not c['fits']]
-        ordered = fitting + sorted(rest, key=lambda c: len(c['page']['tracks']) != want)
-        rows = [(c['version']['date'], c['version']['label'], c['version']['catalog'],
-                 c['version']['format'], c['version']['desc'],
-                 '%d tracks%s' % (len(c['page']['tracks']), ' — fits' if c['fits'] else ''))
-                for c in ordered]
-        title = ('No pressing fits your %d files exactly — pick one' % len(local['files'])
-                 if not fitting else 'Several pressings fit — pick one')
-        i = _pick(title, ('Date', 'Label', 'Catalog', 'Format', 'Description', 'Tracks'), rows)
-        if i is None:
-            return
-        chosen = ordered[i]
+        return _finish(cluster, local, hit, result, fitting[0])
+    # Best match first: pressings that fit the files, then the rest; the first is preselected.
+    want = len(local['files'])
+    rest = [c for c in result['checked'] if not c['fits']]
+    ordered = fitting + sorted(rest, key=lambda c: len(c['page']['tracks']) != want)
+    rows = [(c['version']['date'], c['version']['label'], c['version']['catalog'],
+             c['version']['format'], c['version']['desc'],
+             '%d tracks%s' % (len(c['page']['tracks']), ' — fits' if c['fits'] else ''))
+            for c in ordered]
+    title = ('No pressing fits your %d files exactly — pick one' % len(local['files'])
+             if not fitting else 'Several pressings fit — pick one')
+    _ask(title, ('Date', 'Label', 'Catalog', 'Format', 'Description', 'Tracks'), rows,
+         lambda i: _finish(cluster, local, hit, result, ordered[i]), cluster, local)
+
+
+def _finish(cluster, local, hit, result, chosen):
     album = _build_album(cluster, local, hit, chosen, result['original_date'], result.get('band') or {})
     if album is not None:
         _record_ma(album, result, chosen['version']['album_id'])
