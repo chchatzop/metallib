@@ -150,6 +150,18 @@ def labels(objects):
     return {name: (next(iter(values)) if len(values) == 1 else 'several') for name, values in seen.items()}
 
 
+USER = 'user'
+
+
+def note_user_edit(obj, tag):
+    """The user set this tag by hand (New Value edit, paste, edit dialog, "use original value",
+    removal): it is theirs now, and no source or rule may change it again (obj.value_sources)."""
+    record = getattr(obj, 'value_sources', None)
+    if record is None:
+        record = obj.value_sources = {}
+    record[tag] = USER
+
+
 def use_source_value(objects, source, tag, apply_tag_values):
     """Copy each object's own value from `source` for `tag` into its metadata (New Value).
     Returns the objects that changed. Objects without that source/tag are left alone."""

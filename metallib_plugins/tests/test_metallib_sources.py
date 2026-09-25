@@ -165,3 +165,27 @@ class TestApplyRules(TestShadowAndAttach):
         t.value_sources = {'catalognumber': 'MusicBrainz'}
         self.plugin.apply_rules(album)
         self.assertEqual(t.metadata['catalognumber'], 'MY OWN')
+
+
+class TestUserEditsWin(TestApplyRules):
+    """Audit part 1 H1/H2: a value typed into New Value is the user's -- no late source, pressing
+    switch or save step may replace it."""
+
+    def test_a_new_value_edit_survives_later_rules(self):
+        from picard.ui.metadatabox import apply_tag_values
+        album = self._album_with_both_sources()
+        t = album.tracks[0]
+        list(apply_tag_values([t], 'catalognumber', ['MY OWN']))       # what a New Value edit does
+        self.assertEqual(t.value_sources['catalognumber'], 'user')
+        self.plugin.apply_rules(album)
+        self.assertEqual(t.metadata['catalognumber'], 'MY OWN')
+        self.assertEqual(album.tracks[1].metadata['catalognumber'], 'SHVL 804')   # other tracks: the rule
+
+    def test_a_removed_tag_stays_removed(self):
+        from picard.ui.metadatabox import apply_tag_values
+        album = self._album_with_both_sources()
+        t = album.tracks[0]
+        self.plugin.apply_rules(album)
+        list(apply_tag_values([t], 'barcode', []))
+        self.plugin.apply_rules(album)
+        self.assertNotIn('barcode', t.metadata)

@@ -42,6 +42,7 @@ from picard.tags import tag_names
 from picard.util.qt import temporary_disconnect
 
 from picard.ui import PicardDialog
+from picard.ui.metadatabox import sources as metallib_sources
 from picard.ui.forms.ui_edittagdialog import Ui_EditTagDialog
 
 
@@ -537,6 +538,8 @@ class EditTagDialog(PicardDialog):
         try:
             for obj in self.metadata_box.objects:
                 obj.metadata.update(self._modified_tags_without_empty_values())
+                for tag in self.modified_tags:
+                    metallib_sources.note_user_edit(obj, tag)    # MetalLib: the user's value wins
                 obj.update()
         finally:
             self._metadata_mutex.unlock()

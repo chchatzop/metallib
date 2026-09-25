@@ -215,10 +215,12 @@ def apply_tag_values(objects, tag, values):
     if not values:
         for obj in objects:
             del obj.metadata[tag]
+            metallib_sources.note_user_edit(obj, tag)    # MetalLib: the user's value wins
             yield obj
     else:
         for obj in objects:
             obj.metadata[tag] = values
+            metallib_sources.note_user_edit(obj, tag)    # MetalLib: the user's value wins
             yield obj
 
 

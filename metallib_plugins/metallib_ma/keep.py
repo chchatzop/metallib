@@ -49,6 +49,13 @@ def make_plain(md, user=()):
     from a source column) stay. Returns the removed tag names."""
     has_release = bool(md['musicbrainz_albumid'])
     removed = [t for t in md if t not in user and not keeps(t, has_release)]
+    # MusicBrainz's "there is none" placeholders are not values
+    removed += [t for t, none in PLACEHOLDERS.items()
+                if t in md and t not in user and t not in removed
+                and all(v.strip().lower() == none for v in md.getall(t))]
     for tag in removed:
         del md[tag]
     return removed
+
+
+PLACEHOLDERS = {'catalognumber': '[none]', 'label': '[no label]'}

@@ -617,3 +617,31 @@ def test_original_date_is_the_earliest_year_most_precise():
     assert r.original_date(['2007', '2007-02-19', '2007-02-20', '2011-05']) == '2007-02-19'
     assert r.original_date(['2008', '2007-03']) == '2007-03'
     assert r.original_date(['', '1994']) == '1994' and r.original_date([]) == ''
+
+
+def test_releasecountry_typed_by_the_user_is_saved_as_typed():
+    # Audit part 1 H2: the save step recomputed the band country over the user's own value.
+    import importlib
+    from unittest.mock import MagicMock
+    from picard.ui.metadatabox import apply_tag_values
+    if 'picard.plugins.metallib_ma_test' not in sys.modules:
+        _load_plugin()
+    m = importlib.import_module('picard.plugins.metallib_ma_test')
+    f = _KeepFile(releasecountry='NO')
+    f.parent_item, f.base_filename = None, 'x.flac'
+    list(apply_tag_values([f], 'releasecountry', ['SE']))
+    m.on_file_saving(MagicMock(), f)
+    assert f.metadata['releasecountry'] == 'SE'
+    untouched = _KeepFile(releasecountry='NO')
+    untouched.parent_item = None
+    m.on_file_saving(MagicMock(), untouched)
+    assert untouched.metadata['releasecountry'] == 'NO'                     # not edited: the band rule
+
+
+def test_musicbrainz_placeholders_are_not_values():
+    from picard.metadata import Metadata
+    keep = sys.modules[[m for m in sys.modules if m.endswith('metallib_ma_test.keep')][0]]
+    md = Metadata(catalognumber='[none]', label='[no label]', title='T')
+    assert sorted(keep.make_plain(md)) == ['catalognumber', 'label'] and md['title'] == 'T'
+    own = Metadata(catalognumber='[none]')
+    assert keep.make_plain(own, user={'catalognumber'}) == []              # typed by the user: stays
