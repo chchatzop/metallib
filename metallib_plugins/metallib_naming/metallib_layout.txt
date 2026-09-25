@@ -78,4 +78,7 @@ $if(%_expdel%, \(Exp. Del. Ed.\))
 $if(%_exp%, \(Exp. Ed.\))
 $if(%_re%, \(RE %_re%\))
 $if(%_rm%, \(RM %_rm%\))
+$noop(showcat = 1: this album has other pressings in the library - its catalog goes into the file
+names too so two pressings never share a file name - user)
+$if($eq(%showcat%,1), [%_bracket%])
  - $if($gt(%totaldiscs%,1),%discnumber%-)$num(%tracknumber%,2) - %_title%

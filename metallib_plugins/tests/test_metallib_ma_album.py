@@ -551,33 +551,38 @@ def test_tidy_drops_orphan_release_track_ids_and_foreign_performers():
     ma = Metadata(**{'performer:background vocals': 'Martín Carrizo', 'performer:guitar': 'X'})
     m._tidy_track(track, {'Metal Archives': ma}, {})
     assert 'musicbrainz_trackid' not in old.metadata                       # no release id -> no release-track id
-    assert sorted(t for t in old.metadata if t.startswith('performer:')) == ['performer:guitar']
+    assert not [t for t in old.metadata if t.startswith('performer:')]      # plain tags: no credits at all
     kept = _KeepFile(musicbrainz_albumid='rel', musicbrainz_trackid='trk')
     m._tidy_track(_KeepTrack([kept]), {}, {})
     assert kept.metadata['musicbrainz_trackid'] == 'trk'                   # with its release id it stays
     own = _KeepFile(**{'performer:drums': 'Y'})
-    m._tidy_track(_KeepTrack([own]), {'MusicBrainz': Metadata(title='t')}, {})
-    assert own.metadata['performer:drums'] == 'Y'                          # no source has performers: file's own
+    m._tidy_track(_KeepTrack([own]), {'MusicBrainz': Metadata(title='t')}, {'performer:drums': 'MusicBrainz'})
+    assert own.metadata['performer:drums'] == 'Y'                          # picked by the user: stays
 
 
-def test_language_codes():
+def test_plain_tags_keep_list():
     import importlib
     if 'picard.plugins.metallib_ma_test' not in sys.modules:
         _load_plugin()
-    lang = importlib.import_module('picard.plugins.metallib_ma_test.languages')
-    assert [lang.iso639_3(x) for x in ('Spanish', 'ES', 'es', 'spa', 'English', 'Old Norse', 'Klingon', '')] == \
-        ['spa', 'spa', 'spa', 'spa', 'eng', 'non', '', '']
+    keep = importlib.import_module('picard.plugins.metallib_ma_test.keep')
+    from picard.metadata import Metadata
+    md = Metadata(**{'title': 't', 'artists': 'A', 'albumartistsort': 'A', 'genre_source': 'RYM', 'showcat': '1',
+                     'totaltracks': '11', 'discsubtitle': 'Live', 'acoustid_id': 'x', 'replaygain_track_gain': '-8 dB',
+                     'encoder': 'FLAC 1.2.1', 'performer:guitar': 'P', 'writer': 'W', 'producer': 'Pr', 'lyrics': 'L',
+                     'comment': 'C', 'language': 'Spanish', 'script': 'Latn', 'rip date': '2012', 'organization': 'O',
+                     'barcode': '123', 'isrc': 'I', 'asin': 'A1', '~hidden': 'h'})
+    removed = keep.make_plain(md, user={'producer'})
+    assert sorted(removed) == ['asin', 'barcode', 'comment', 'isrc', 'language', 'lyrics', 'organization',
+                               'performer:guitar', 'rip date', 'script', 'writer']
+    assert md['producer'] == 'Pr' and md['~hidden'] == 'h'                 # a user pick stays; hidden untouched
+    with_release = Metadata(musicbrainz_albumid='rel', barcode='123', isrc='I', asin='A1')
+    assert keep.make_plain(with_release) == []                             # a real MB release: kept
 
 
-def test_tidy_removes_scene_tags_and_writes_language_codes():
+def test_tidy_drops_release_ids_without_a_release_and_everything_not_kept():
     import importlib
     m = importlib.import_module('picard.plugins.metallib_ma_test')
-    f = _KeepFile(**{'rip date': '2012-05-04', 'ripping tool': 'EAC Secure', 'retail date': '1994-00-00',
-                     'release type': 'Normal', 'language 2-letter': 'ES', 'language': 'Spanish',
-                     'organization': 'Tommy Gun Records', 'label': 'Tommy Gun Records', 'encoder': 'FLAC 1.2.1'})
+    f = _KeepFile(**{'musicbrainz_trackid': '71633f01', 'performer:backing vocals': 'X (R.I.P. 2022)',
+                     'rip date': '2012-05-04', 'language': 'Spanish', 'label': 'L', 'title': 'T'})
     m._tidy_track(_KeepTrack([f]), {}, {})
-    left = {k: f.metadata[k] for k in f.metadata}
-    assert left == {'language': 'spa', 'label': 'Tommy Gun Records', 'encoder': 'FLAC 1.2.1'}
-    no_label = _KeepFile(organization='Some Label')
-    m._tidy_track(_KeepTrack([no_label]), {}, {})
-    assert no_label.metadata['organization'] == 'Some Label'        # the only label info: kept
+    assert sorted(f.metadata) == ['label', 'title']

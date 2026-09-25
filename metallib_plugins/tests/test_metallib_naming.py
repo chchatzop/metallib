@@ -177,6 +177,15 @@ class LayoutScript(PicardTestCase):
         self.assertEqual(got, 'A.N.I.M.A.L. (AR)/1994 - Fin de un mundo enfermo [4509-98058-2 CD] [16-44]/'
                               'A.N.I.M.A.L. - Fin de un mundo enfermo - 01 - Solo por ser indios')
 
+    def test_showcat_puts_the_catalog_bracket_into_file_names(self):
+        got = self.name(originalyear='1999', media='CD', catalognumber='063 683-2', showcat='1',
+                        albumartist='Apocalyptica', album='Reflections', title='Prologue', _ma_band_country_code='FI')
+        self.assertEqual(got, 'Apocalyptica (FI)/1999 - Reflections [063 683-2 CD] [16-44]/'
+                              'Apocalyptica - Reflections [063 683-2 CD] - 01 - Prologue')
+        plain = self.name(originalyear='1999', media='CD', catalognumber='063 683-2',
+                          albumartist='Apocalyptica', album='Reflections', title='Prologue', _ma_band_country_code='FI')
+        self.assertTrue(plain.endswith('/Apocalyptica - Reflections - 01 - Prologue'))
+
 
 class CatnumTag(PicardTestCase):
     def test_catnum_is_the_folder_bracket(self):
@@ -197,3 +206,4 @@ class CatnumTag(PicardTestCase):
         self.assertEqual(mod.catnum_for(F(r'C:\in\Band - Album', media='CD')), 'CD')           # no catalog
         self.assertEqual(mod.catnum_for(F(r'C:\in\Band-Album-WEB-2023-GRP', media='CD', catalognumber='X1')), 'WEB')
         self.assertEqual(mod.catnum_for(F(r'C:\in\Band - Album')), '')                         # nothing known
+

@@ -69,7 +69,7 @@ from .pressings import (
     from_ma,
     from_mb,
 )
-from .languages import iso639_3
+from .keep import make_plain
 from .rules import (
     POSITION_TAGS,
     PRESSING_TAGS,
@@ -680,10 +680,6 @@ def _keep_file_value(track, tag):
 
 # A release-track or disc id belongs to one release: without that release's id it is meaningless.
 _RELEASE_ONLY_IDS = ('musicbrainz_trackid', 'musicbrainz_releasetrackid', 'musicbrainz_discid')
-# Scene / ripper tags removed from albums MetalLib manages (user): rip facts, an invalid
-# "1994-00-00" retail date, "Release Type = Normal" next to the real releasetype, a two-letter
-# duplicate of the language. ORGANIZATION too when it only repeats the label.
-JUNK_TAGS = ('rip date', 'ripping tool', 'retail date', 'release type', 'language 2-letter')
 
 
 def _performer_source(sources):
@@ -693,36 +689,38 @@ def _performer_source(sources):
                  if n in sources and any(t.startswith('performer:') for t in sources[n])), None)
 
 
+def _user_picks(track, file=None):
+    picks = dict(getattr(track, 'value_sources', None) or {}) if track is not None else {}
+    for f in ([file] if file is not None else getattr(track, 'files', [])):
+        picks.update(getattr(f, 'value_sources', None) or {})
+    return picks
+
+
 def _tidy_track(track, sources, user):
-    """Clean what a file may still carry from an earlier save or the rip (user: A.N.I.M.A.L.):
-    - scene/ripper junk tags go (JUNK_TAGS; ORGANIZATION when a label is set);
-    - the language becomes the ISO 639-3 code MusicBrainz writes ("Spanish" -> "spa");
-    - no release id in New Value -> no release-track / disc id either;
-    - a source has performers -> New Value has exactly that source's performer entries; other
-      performer entries already in the file go (the file's own stay only when no source has any).
-    Tags the user picked a value for are left alone."""
-    mds = [track.metadata] + [f.metadata for f in track.files]
-    for md in mds:
-        for tag in JUNK_TAGS:
-            if tag in md and tag not in user:
-                del md[tag]
-        if 'organization' in md and md['label'] and 'organization' not in user:
-            del md['organization']
-        if 'language' in md and 'language' not in user:
-            values = list(md.getall('language'))
-            codes = [iso639_3(v) or v for v in values]         # "Spanish" -> "spa" (user)
-            if codes != values:
-                md['language'] = codes
+    """Plain tags in New Value (user): no release-track / disc id without a release id (they belong
+    to one release), then only the keep-list (keep.py) -- no credits, lyrics, comments, scene tags,
+    ... from any source or from the file. Tags the user picked a value for are left alone."""
+    for md in [track.metadata] + [f.metadata for f in track.files]:
         if not md['musicbrainz_albumid']:
             for tag in _RELEASE_ONLY_IDS:
                 if tag in md and tag not in user:
                     del md[tag]
-    perf = _performer_source(sources)
-    if perf:
-        keep = {t for t in sources[perf] if t.startswith('performer:')}
-        for md in mds:
-            for tag in [t for t in md if t.startswith('performer:') and t not in keep and t not in user]:
-                del md[tag]
+        make_plain(md, user)
+
+
+def on_file_saving(api, file):
+    """The keep-list once more right before a file is written: also albums where no other source
+    loaded and clusters that were never looked up are saved plain (user)."""
+    from picard.plugin3.api import Track
+    track = file.parent_item if isinstance(file.parent_item, Track) else None
+    user = _user_picks(track, file)
+    if not file.metadata['musicbrainz_albumid']:
+        for tag in _RELEASE_ONLY_IDS:
+            if tag in file.metadata and tag not in user:
+                del file.metadata[tag]
+    removed = make_plain(file.metadata, user)
+    if removed:
+        api.logger.debug("plain tags: %s drops %s", file.base_filename, ', '.join(sorted(removed)))
 
 
 def apply_rules(album):
@@ -1147,6 +1145,7 @@ def enable(api: PluginApi) -> None:
     api.register_album_metadata_processor(on_mb_album)
     pressings_panel.install(api)
     _hook_session(api)
+    api.register_file_pre_save_processor(on_file_saving)
     for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),
                       ('_ma_band_country_code', 'Band country code from Metal Archives, e.g. "IT".'),
                       ('_ma_band_status', 'Band status from Metal Archives, e.g. "Active".'),
