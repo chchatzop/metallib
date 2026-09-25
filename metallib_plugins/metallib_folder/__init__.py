@@ -4,6 +4,9 @@
 #                                  "2 junk, 1 check, 1 rename" for their folder(s)
 #   right-click album / cluster -> "Folder contents..."   every non-album file with a verdict;
 #                                  tick and "Move to trash" / apply the cover rename; "Undo last clean-up"
+#   the Extra files panel          next to the pressing lists: tick / rename / preview the album's
+#                                  extra files; they move (or go to the trash) when it is saved --
+#                                  see extras_panel.py
 #
 # Junk goes to .metallib_trash at the root of the same drive/share -- never deleted, always undoable.
 # See folder_scan.py for the rules.
@@ -201,13 +204,23 @@ class FolderDialog(QtWidgets.QDialog):
         self._reload()
 
 
+def disable() -> None:
+    from . import extras_panel
+    extras_panel.uninstall()
+
+
 def enable(api: PluginApi) -> None:
     global _api
     _api = api
+    from . import extras_panel
+    api.plugin_config.register_option(extras_panel.LAYOUT_OPTION, '')
+    extras_panel.install(api, _log)
+    api.register_file_pre_save_processor(extras_panel.on_file_saving)
+    api.register_file_post_save_processor(extras_panel.on_file_saved)
     api.register_album_action(FolderContents)
     api.register_cluster_action(FolderContents)
     api.register_script_function(folder_summary, name='folder', documentation=(
         '`$folder()`\n\nAlbum / cluster rows: what else is in the folder -- "clean" or e.g. "2 junk, 1 rename".'))
 
 
-__all__ = ['enable', 'KEEP']
+__all__ = ['disable', 'enable', 'KEEP']

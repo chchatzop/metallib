@@ -227,3 +227,14 @@ def rename(path, target, log, batch):
     os.rename(_long(path), _long(target))
     log.append(batch, path, target, 'rename')
     return target
+
+
+def move_file(path, target, log, batch):
+    """Move `path` to `target`, also to another drive (album folders move from the download drive to
+    the library's); never over an existing file. Logged, so it can be undone."""
+    if os.path.exists(_long(target)):
+        raise FileExistsError('%s already exists' % os.path.basename(target))
+    os.makedirs(_long(os.path.dirname(target)), exist_ok=True)
+    shutil.move(_long(path), _long(target))
+    log.append(batch, path, target, 'move')
+    return target

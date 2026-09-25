@@ -1,0 +1,511 @@
+# MetalLib -- the Extra files panel (next to the pressing lists) and what happens to those files on save.
+#
+# For the selected album: every non-audio file in its folder(s), subfolders included. Tick = moves
+# with the album; the name cell is editable (the library's "Front", "Back", "Booklet 03" ...), the
+# "Becomes" column shows the full new name. Clicking a row previews it beside the list (images;
+# .nfo/.txt/.log/.cue/.sfv/.m3u as text -- NFOs in the DOS character set, for their ASCII art);
+# double-click opens it full size. Picard's own "move additional files" is replaced for album files:
+# after the album's audio is saved, ticked files move under their new names, the rest goes to
+# .metallib_trash (never audio), empty source folders are removed -- all logged, undoable from
+# "Folder contents..." -> "Undo last clean-up". Choices are not saved (like the pressing lists).
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+import os
+from functools import partial
+
+from PyQt6 import (
+    QtCore,
+    QtGui,
+    QtWidgets,
+)
+
+from picard.plugin3.api import (
+    Album,
+    File,
+    Track,
+)
+
+from .extras import (
+    IMAGE,
+    TEXT,
+    execute,
+    foreign_audio,
+    list_extras,
+    plan,
+    prefix_of,
+    target_name,
+)
+from .folder_scan import (
+    move_file,
+    move_to_trash,
+    new_batch,
+)
+
+
+ROW_NAME = 'metallib_panel_row'          # the row the pressing lists live in (metallib_ma)
+USER_ATTR = 'metallib_extras_user'       # {path: {'tick': bool, 'stem': str}} on the Album
+SAVE_ATTR = 'metallib_extras_save'       # {'pending': set, 'folders': set} while an album saves
+LAYOUT_OPTION = 'extras_layout'
+TEXT_LIMIT = 512 * 1024
+_panel = None
+_api = None
+_log_factory = None
+_originals = {}
+
+
+# -- the album's extra files -----------------------------------------------------------------------------
+
+def source_folders(files):
+    folders = {os.path.dirname(f.filename) for f in files}
+    # a disc folder ("CD1") belongs to its album folder: the parent holds the scans
+    folders |= {os.path.dirname(d) for d in folders if len(os.path.basename(d)) <= 12
+                and os.path.basename(d).lower().replace(' ', '').startswith(('cd', 'disc', 'disk'))}
+    # a parent that is also listed covers its subfolders
+    return sorted(d for d in folders if not any(d != o and d.startswith(o + os.sep) for o in folders))
+
+
+def planned(album, folders=None):
+    files = list(album.iterfiles())
+    entries = list_extras(folders or source_folders(files), [f.filename for f in files])
+    return plan(entries, getattr(album, USER_ATTR, None))
+
+
+def destination(album):
+    """(folder, prefix, multi) the album's files will get, from Picard's own naming."""
+    files = list(album.iterfiles())
+    if not files:
+        return None, None, False
+    f = files[0]
+    try:
+        new = f.make_filename(f.filename, f.metadata)
+    except Exception:
+        return None, None, False
+    prefix, multi = prefix_of(new)
+    return os.path.dirname(new), prefix, multi
+
+
+# -- preview ---------------------------------------------------------------------------------------------
+
+def read_text(path):
+    try:
+        with open(path, 'rb') as fh:
+            raw = fh.read(TEXT_LIMIT)
+    except OSError as e:
+        return str(e)
+    if path.lower().endswith(('.nfo', '.diz')):
+        return raw.decode('cp437', errors='replace')        # scene ASCII art
+    for enc in ('utf-8-sig', 'cp1252'):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('latin-1', errors='replace')
+
+
+def _mono():
+    font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.SystemFont.FixedFont)
+    return font
+
+
+class Preview(QtWidgets.QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.stack = QtWidgets.QStackedWidget()
+        self.image = QtWidgets.QLabel()
+        self.image.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.image.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Ignored)
+        self.text = QtWidgets.QPlainTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setFont(_mono())
+        self.text.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap)
+        self.none = QtWidgets.QLabel('Select a file to preview it.\nDouble-click: full size.')
+        self.none.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        for w in (self.none, self.image, self.text):
+            self.stack.addWidget(w)
+        layout.addWidget(self.stack, 1)
+        self.info = QtWidgets.QLabel()
+        layout.addWidget(self.info, 0)
+        self.pixmap = None
+
+    def show_entry(self, e):
+        self.pixmap = None
+        if e is None:
+            self.stack.setCurrentWidget(self.none)
+            self.info.setText('')
+            return
+        if e['kind'] == IMAGE:
+            reader = QtGui.QImageReader(e['path'])
+            reader.setAutoTransform(True)
+            img = reader.read()
+            if img.isNull():
+                self.stack.setCurrentWidget(self.none)
+                self.info.setText('cannot read this image: %s' % reader.errorString())
+                return
+            self.pixmap = QtGui.QPixmap.fromImage(img)
+            self.stack.setCurrentWidget(self.image)
+            self._scale()
+            self.info.setText('%d × %d px, %s' % (img.width(), img.height(), _size(e['size'])))
+        elif e['kind'] == TEXT:
+            self.text.setPlainText(read_text(e['path']))
+            self.stack.setCurrentWidget(self.text)
+            self.info.setText(_size(e['size']))
+        else:
+            self.stack.setCurrentWidget(self.none)
+            self.info.setText('%s — no preview for this kind of file' % _size(e['size']))
+
+    def _scale(self):
+        if self.pixmap is not None:
+            self.image.setPixmap(self.pixmap.scaled(self.image.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                                                    QtCore.Qt.TransformationMode.SmoothTransformation))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._scale()
+
+
+class FullView(QtWidgets.QDialog):
+    """Double-click: the file at full size (scrollable) or the whole text."""
+
+    def __init__(self, parent, e):
+        super().__init__(parent)
+        self.setWindowTitle(e['name'])
+        layout = QtWidgets.QVBoxLayout(self)
+        if e['kind'] == IMAGE:
+            reader = QtGui.QImageReader(e['path'])
+            reader.setAutoTransform(True)
+            label = QtWidgets.QLabel()
+            label.setPixmap(QtGui.QPixmap.fromImage(reader.read()))
+            area = QtWidgets.QScrollArea()
+            area.setWidget(label)
+            area.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(area)
+        else:
+            text = QtWidgets.QPlainTextEdit(read_text(e['path']))
+            text.setReadOnly(True)
+            text.setFont(_mono())
+            text.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap)
+            layout.addWidget(text)
+        screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
+        self.resize(int(screen.width() * 0.7), int(screen.height() * 0.85))
+
+
+def _size(n):
+    return '%d B' % n if n < 10240 else ('%.0f KB' % (n / 1024) if n < 1048576 else '%.1f MB' % (n / 1048576))
+
+
+# -- the panel -------------------------------------------------------------------------------------------
+
+COLS = ('', 'File', 'New name', 'Becomes', 'Size', 'What')
+C_TICK, C_FILE, C_STEM, C_BECOMES, C_SIZE, C_WHAT = range(6)
+
+
+class ExtrasPanel(QtWidgets.QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.album = None
+        self.entries = []
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+        self.title = QtWidgets.QLabel('Extra files — select an album')
+        self.title.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Fixed)
+        layout.addWidget(self.title, 0)
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        self.splitter.setObjectName('metallib_extras_split')
+        self.splitter.setChildrenCollapsible(False)
+        self.table = QtWidgets.QTableWidget(0, len(COLS))
+        self.table.setHorizontalHeaderLabels(COLS)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked
+                                   | QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed
+                                   | QtWidgets.QAbstractItemView.EditTrigger.AnyKeyPressed)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(self.table.fontMetrics().height() + 4)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.itemChanged.connect(self._changed)
+        self.table.currentCellChanged.connect(self._current)
+        self.table.cellDoubleClicked.connect(self._double)
+        self.preview = Preview()
+        self.splitter.addWidget(self.table)
+        self.splitter.addWidget(self.preview)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 2)
+        layout.addWidget(self.splitter, 1)
+        self._filling = False
+
+    def show_album(self, album):
+        if album is not self.album:
+            self.album = album
+            self.refresh(select=0)
+
+    def refresh(self, select=None):
+        album = self.album
+        current = self.table.currentRow() if select is None else select
+        self._filling = True
+        self.table.setRowCount(0)
+        if album is None or album.id not in _api.tagger.albums:
+            self.entries = []
+            self.title.setText('Extra files — select an album')
+            self.preview.show_entry(None)
+            self._filling = False
+            return
+        self.entries = planned(album)
+        dest, prefix, multi = destination(album)
+        grey = self.palette().color(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.Text)
+        self.table.setRowCount(len(self.entries))
+        blocked = foreign_audio(self.entries)
+        for r, e in enumerate(self.entries):
+            tick = QtWidgets.QTableWidgetItem()
+            tick.setFlags(QtCore.Qt.ItemFlag.ItemIsUserCheckable | QtCore.Qt.ItemFlag.ItemIsEnabled
+                          | QtCore.Qt.ItemFlag.ItemIsSelectable)
+            tick.setCheckState(QtCore.Qt.CheckState.Checked if e['tick'] else QtCore.Qt.CheckState.Unchecked)
+            self.table.setItem(r, C_TICK, tick)
+            stem = QtWidgets.QTableWidgetItem(e['stem'])
+            stem.setFlags(QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.Qt.ItemFlag.ItemIsEnabled
+                          | QtCore.Qt.ItemFlag.ItemIsSelectable)
+            stem.setToolTip('Type the name the library uses: Front, Back, CD, Inlay, Booklet 01 ...')
+            self.table.setItem(r, C_STEM, stem)
+            if e['tick']:
+                becomes = target_name(prefix, multi, e['stem'], os.path.splitext(e['name'])[1]) if prefix else ''
+            else:
+                becomes = 'stays where it is' if _is_audio(e) else '→ trash'
+            what = {'image': 'image', 'text': 'text'}.get(e['kind'], 'other')
+            if e['kind'] == IMAGE and 'proof' in e['guess'].lower():
+                what = 'image — proof?'
+            if _is_audio(e):
+                what = 'music not in this album — stays'
+            for c, text in ((C_FILE, e['rel']), (C_BECOMES, becomes), (C_SIZE, _size(e['size'])), (C_WHAT, what)):
+                item = QtWidgets.QTableWidgetItem(text)
+                item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable)
+                if not e['tick']:
+                    item.setForeground(grey)
+                self.table.setItem(r, c, item)
+        self.table.resizeColumnsToContents()
+        moving = sum(1 for e in self.entries if e['tick'])
+        trashed = sum(1 for e in self.entries if not e['tick'] and not _is_audio(e))
+        where = source_folders(list(album.iterfiles()))
+        head = 'Extra files in %s' % (where[0] if where else '?')
+        if len(where) > 1:
+            head += ' (+%d)' % (len(where) - 1)
+        if blocked:
+            self.title.setText('%s — this folder has other music too: extra files are left alone' % head)
+        elif not self.entries:
+            self.title.setText('%s — none' % head)
+        else:
+            self.title.setText('%s — %d move with the album, %d to trash when saved' % (head, moving, trashed))
+        self.title.setToolTip('\n'.join(where) + ('\n→ ' + dest if dest else ''))
+        self._filling = False
+        if self.entries:
+            row = min(max(current, 0), len(self.entries) - 1)
+            self.table.setCurrentCell(row, C_FILE)
+            self.preview.show_entry(self.entries[row])
+        else:
+            self.preview.show_entry(None)
+
+    def _choice(self, e):
+        user = getattr(self.album, USER_ATTR, None)
+        if user is None:
+            user = {}
+            setattr(self.album, USER_ATTR, user)
+        return user.setdefault(e['path'], {})
+
+    def _changed(self, item):
+        if self._filling or self.album is None or item.row() >= len(self.entries):
+            return
+        e = self.entries[item.row()]
+        if item.column() == C_TICK:
+            self._choice(e)['tick'] = item.checkState() == QtCore.Qt.CheckState.Checked
+        elif item.column() == C_STEM:
+            text = ' '.join(item.text().split()).strip(' -.')
+            self._choice(e)['stem'] = text or e['guess']
+        else:
+            return
+        QtCore.QTimer.singleShot(0, self.refresh)
+
+    def _current(self, row, col, prev_row, prev_col):
+        if not self._filling and 0 <= row < len(self.entries) and row != prev_row:
+            self.preview.show_entry(self.entries[row])
+
+    def _double(self, row, col):
+        if col != C_STEM and 0 <= row < len(self.entries):
+            FullView(self, self.entries[row]).show()
+
+
+def _is_audio(e):
+    from .folder_scan import AUDIO_EXTS
+    return os.path.splitext(e['name'])[1].lower() in AUDIO_EXTS
+
+
+def _album_of(objects):
+    for obj in objects or []:
+        if isinstance(obj, Album):
+            return obj
+        if isinstance(obj, Track):
+            return obj.album
+        if isinstance(obj, File) and isinstance(obj.parent_item, Track):
+            return obj.parent_item.album
+    return None
+
+
+def _on_selection(objects):
+    album = _album_of(objects)
+    if album is not None and _panel is not None:
+        _panel.show_album(album)
+
+
+# -- saving ------------------------------------------------------------------------------------------------
+
+def _album_of_file(file):
+    return file.parent_item.album if isinstance(file.parent_item, Track) else None
+
+
+def _move_additional_files(self, old_filename, new_filename, config):
+    # Album files: the Extra files step does it (names, ticks, trash). Anything else: Picard's way.
+    if _album_of_file(self) is None:
+        return _originals['move_additional_files'](self, old_filename, new_filename, config)
+
+
+def on_file_saving(api, file):
+    album = _album_of_file(file)
+    if album is None:
+        return
+    st = getattr(album, SAVE_ATTR, None)
+    if st is None:
+        st = {'pending': set(), 'folders': set()}
+        setattr(album, SAVE_ATTR, st)
+    st['pending'].add(id(file))
+    st['folders'].update(source_folders([file]))
+
+
+def on_file_saved(api, file):
+    album = _album_of_file(file)
+    st = getattr(album, SAVE_ATTR, None) if album is not None else None
+    if st is None:
+        return
+    st['pending'].discard(id(file))
+    if st['pending']:
+        return
+    setattr(album, SAVE_ATTR, None)
+    QtCore.QTimer.singleShot(0, partial(run_extras, album, sorted(st['folders'])))
+
+
+def run_extras(album, folders):
+    """After the album's audio was saved: carry out the extra-files plan for its old folder(s)."""
+    from picard.config import get_config
+    setting = get_config().setting
+    if not (setting['move_files'] or setting['rename_files']):
+        return
+    entries = planned(album, folders)
+    if not entries:
+        _panel_refresh(album)
+        return
+    if foreign_audio(entries):
+        _status('extra files left alone: the old folder also holds music that is not in this album')
+        _panel_refresh(album)
+        return
+    files = list(album.iterfiles())
+    if not files:
+        return
+    prefix, multi = prefix_of(files[0].filename)
+    dest = os.path.dirname(files[0].filename)
+    if not prefix:
+        _status('extra files left alone: the track names have no " - NN - " part to name them after')
+        return
+    done = execute(entries, prefix, multi, dest, _log_factory(), new_batch(), move_file, move_to_trash)
+    msg = 'extra files: %d moved, %d to trash' % (len(done['moved']), len(done['trashed']))
+    if done['errors']:
+        msg += ', %d left alone (%s)' % (len(done['errors']), done['errors'][0])
+    _status(msg + ' — undo: Folder contents... → Undo last clean-up')
+    setattr(album, USER_ATTR, None)
+    _panel_refresh(album)
+
+
+def _status(text):
+    _api.tagger.window.set_statusbar_message('MetalLib: %s', text)
+
+
+def _panel_refresh(album):
+    if _panel is not None and _panel.album is album:
+        _panel.refresh()
+
+
+# -- install ---------------------------------------------------------------------------------------------
+
+def _row(window):
+    for sp in window.findChildren(QtWidgets.QSplitter, ROW_NAME):
+        return sp
+    rows = window.panel.parentWidget()
+    if not isinstance(rows, QtWidgets.QSplitter):
+        return None
+    row = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+    row.setObjectName(ROW_NAME)
+    row.setChildrenCollapsible(False)
+    rows.insertWidget(rows.indexOf(window.panel) + 1, row)
+    return row
+
+
+def _restore_layout(splitters):
+    import base64
+    import json
+    try:
+        saved = json.loads(_api.plugin_config[LAYOUT_OPTION] or '{}')
+    except (ValueError, KeyError, TypeError):
+        return
+    for s in splitters:
+        state = saved.get(s.objectName())
+        if state:
+            s.restoreState(QtCore.QByteArray(base64.b64decode(state)))
+
+
+def _save_layout(splitters, *args):
+    import base64
+    import json
+    try:
+        _api.plugin_config[LAYOUT_OPTION] = json.dumps(
+            {s.objectName(): base64.b64encode(bytes(s.saveState())).decode('ascii') for s in splitters})
+    except (KeyError, RuntimeError):
+        pass
+
+
+def install(api, log_factory, tries=100):
+    global _panel, _api, _log_factory
+    _api, _log_factory = api, log_factory
+    window = getattr(api.tagger, 'window', None)
+    if window is None or not hasattr(window, 'panel'):
+        if tries:
+            QtCore.QTimer.singleShot(200, partial(install, api, log_factory, tries - 1))
+        return
+    if _panel is not None:
+        return
+    row = _row(window)
+    if row is None:
+        return
+    _panel = ExtrasPanel()
+    row.addWidget(_panel)                     # to the right of the pressing lists
+    window.selection_updated.connect(_on_selection)
+    splitters = (row, _panel.splitter)
+    for delay in (0, 1500):                   # after Picard's and the pressing panel's own restore
+        QtCore.QTimer.singleShot(delay, partial(_restore_layout, splitters))
+    for sp in splitters:
+        sp.splitterMoved.connect(partial(_save_layout, splitters))
+    _originals['move_additional_files'] = File._move_additional_files
+    File._move_additional_files = _move_additional_files
+
+
+def uninstall():
+    global _panel
+    if 'move_additional_files' in _originals:
+        File._move_additional_files = _originals.pop('move_additional_files')
+    if _panel is None:
+        return
+    try:
+        _api.tagger.window.selection_updated.disconnect(_on_selection)
+    except (TypeError, RuntimeError):
+        pass
+    _panel.setParent(None)
+    _panel.deleteLater()
+    _panel = None

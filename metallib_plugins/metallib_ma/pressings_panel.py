@@ -513,6 +513,30 @@ def _on_selection(objects):
         _panel.show_album(album)
 
 
+ROW_NAME = 'metallib_panel_row'
+
+
+def panel_row(window):
+    """The full-width row between the file/album panes and the tag panel that holds MetalLib's
+    panels side by side (pressings, extra files). Made by whichever plugin comes first."""
+    for sp in window.findChildren(QtWidgets.QSplitter, ROW_NAME):
+        return sp
+    rows = window.panel.parentWidget()        # Picard's vertical splitter: [panes, tag panel]
+    if not isinstance(rows, QtWidgets.QSplitter):
+        return None
+    before = rows.sizes()
+    row = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+    row.setObjectName(ROW_NAME)
+    row.setChildrenCollapsible(False)
+    rows.insertWidget(rows.indexOf(window.panel) + 1, row)
+    rows.setStretchFactor(rows.indexOf(row), 0)
+    if len(before) == 2 and sum(before):
+        # first layout: the panes keep most of their height, the row takes a slice of it
+        panes, tags = before
+        rows.setSizes([int(panes * 0.65), panes - int(panes * 0.65), tags])
+    return row
+
+
 def install(api, tries=100):
     """Put the panel across the whole window, between the file/album panes and the tag panel (user).
     Plugins start before the window exists, so this retries until it does."""
@@ -525,19 +549,14 @@ def install(api, tries=100):
         return
     if _panel is not None:
         return
-    rows = window.panel.parentWidget()        # Picard's vertical splitter: [panes, tag panel]
-    if not isinstance(rows, QtWidgets.QSplitter):
+    row = panel_row(window)
+    if row is None:
         return
-    before = rows.sizes()
+    rows = row.parentWidget()
     _panel = PressingsPanel()
-    rows.insertWidget(rows.indexOf(window.panel) + 1, _panel)
-    rows.setStretchFactor(rows.indexOf(_panel), 0)
-    if len(before) == 2 and sum(before):
-        # first layout: the panes keep most of their height, the panel takes a slice of it
-        panes, tags = before
-        rows.setSizes([int(panes * 0.65), panes - int(panes * 0.65), tags])
+    row.insertWidget(0, _panel)               # pressings on the left, the Extra files panel beside it
     window.selection_updated.connect(_on_selection)
-    splitters = (rows, _panel.splitter)
+    splitters = (rows, row, _panel.splitter)
     _restore_layout(splitters)
     # Picard restores its own splitters when the window is shown, possibly after this: once more then.
     QtCore.QTimer.singleShot(0, partial(_restore_layout, splitters))
@@ -583,9 +602,13 @@ def uninstall():
         _api.tagger.window.selection_updated.disconnect(_on_selection)
     except (TypeError, RuntimeError):
         pass
+    row = _panel.parentWidget()
     _panel.setParent(None)
     _panel.deleteLater()
     _panel = None
+    if row is not None and row.objectName() == ROW_NAME and row.count() == 0:
+        row.setParent(None)
+        row.deleteLater()
 
 
 __all__ = ['install', 'note', 'record', 'set_chosen', 'uninstall']
