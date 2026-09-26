@@ -147,17 +147,26 @@ def embed_front(album, entries):
             data = fh.read()
     except OSError:
         return False
+    url = QtCore.QUrl.fromLocalFile(e['path']).toString()
     current = album_front(album)
-    if current is not None and current.data == data:
+    if current is not None and current.url is not None and current.url.toString() == url \
+            and _original(current) == data:
         return False
     from picard.coverart.image import CoverArtImage
     from picard.coverart.setters import (
         CoverArtSetter,
         CoverArtSetterMode,
     )
-    image = CoverArtImage(url=QtCore.QUrl.fromLocalFile(e['path']).toString(), types=['front'], data=data)
+    make = getattr(_api.tagger, 'metallib_cover_image', None)     # metallib_ma: embedded at most 1400 px
+    image = make(url, data) if make is not None else CoverArtImage(url=url, types=['front'], data=data)
     CoverArtSetter(CoverArtSetterMode.REPLACE, image, album).set_coverart()
     return True
+
+
+def _original(image):
+    """The image's full-size data: the file variant when the embedded copy was scaled down."""
+    ext = getattr(image, 'external_file_coverart', None)
+    return ext.data if ext is not None else image.data
 
 
 def write_front_file(album, dest, prefix, multi):
@@ -169,7 +178,7 @@ def write_front_file(album, dest, prefix, multi):
     except OSError:
         return None
     image = album_front(album)
-    data = image.data if image is not None else None
+    data = _original(image) if image is not None else None      # the file gets the original size (user)
     if not data:
         return None
     path = os.path.join(dest, target_name(prefix, multi, 'Front', image.extension or '.jpg'))

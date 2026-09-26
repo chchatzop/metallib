@@ -46,3 +46,33 @@ def test_caa_without_cover_art():
     def opener(req, timeout=None):
         raise OSError('404')
     assert covers.caa_front('rel-1', opener) is None
+
+
+def _jpeg(w, h):
+    from PyQt6 import QtCore, QtGui
+    img = QtGui.QImage(w, h, QtGui.QImage.Format.Format_RGB32)
+    img.fill(QtGui.QColor(120, 30, 30))
+    buf = QtCore.QBuffer()
+    buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+    img.save(buf, 'JPEG', 90)
+    return bytes(buf.data())
+
+
+def test_embedded_copy_is_at_most_1400_on_the_longest_side():
+    from PyQt6 import QtGui
+    big = _jpeg(3000, 2000)
+    small = covers.tag_copy(big)
+    img = QtGui.QImage.fromData(small)
+    assert (img.width(), img.height()) == (1400, 933)
+    ok = _jpeg(1000, 1000)
+    assert covers.tag_copy(ok) is ok                     # small enough: untouched, byte for byte
+
+
+def test_discogs_primary_image():
+    release = {'images': [{'type': 'secondary', 'uri': 'https://i.discogs.com/back.jpg'},
+                          {'type': 'primary', 'uri': 'https://i.discogs.com/front.jpg'}]}
+
+    def opener(req, timeout=None):
+        return _Resp(b'IMG:' + req.full_url.encode())
+    assert covers.discogs_front(release, opener) == (b'IMG:https://i.discogs.com/front.jpg', 'https://i.discogs.com/front.jpg')
+    assert covers.discogs_front({'images': []}, opener) is None

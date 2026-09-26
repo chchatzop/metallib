@@ -323,7 +323,9 @@ def _loaded_dg(album, cid, result=None, error=None):
     _note_lengths(album, 'Discogs', cid, [t['length'] for t in flat_tracklist(result)])
     built = build_node(result)
     mds = track_metadata(built['node'], fix=partial(_dg_fix, built))
-    _apply(album, DISCOGS, cid, mds, attach, apply_rules)
+    if _apply(album, DISCOGS, cid, mds, attach, apply_rules):
+        from . import offer_dg_cover
+        offer_dg_cover(album, result)
 
 
 def _loaded_mb(album, cid, document=None, http=None, error=None):

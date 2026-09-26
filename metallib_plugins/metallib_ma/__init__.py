@@ -553,15 +553,14 @@ def choose_cover(album):
         return
     data, url = offers[source]
     current = next((img for img in album.metadata.images if img.is_front_image()), None)
-    if current is not None and current.data == data:
+    if current is not None and current.url is not None and str(current.url.toString()) == url:
         return
-    from picard.coverart.image import CoverArtImage
     from picard.coverart.setters import (
         CoverArtSetter,
         CoverArtSetterMode,
     )
-    CoverArtSetter(CoverArtSetterMode.REPLACE, CoverArtImage(url=url, types=['front'], data=data),
-                   album).set_coverart()
+    # embedded at most 1400 px on its longest side; the original is what an image file gets
+    CoverArtSetter(CoverArtSetterMode.REPLACE, covers.cover_image(url, data), album).set_coverart()
     _api.logger.debug("cover of %r: %s %dx%d", album.metadata['album'], source, *dims[source][:2])
 
 
@@ -570,6 +569,13 @@ def offer_ma_cover(album, cover_url):
         pools.run(pools.MA, partial(client().fetch_bytes, cover_url),
                   lambda result=None, error=None: offer_cover(album, METAL_ARCHIVES, result, cover_url)
                   if not error else None)
+
+
+def offer_dg_cover(album, release):
+    if release:
+        pools.run(pools.DISCOGS, partial(covers.discogs_front, release),
+                  lambda result=None, error=None: offer_cover(album, DISCOGS, *result)
+                  if result and not error else None)
 
 
 def offer_mb_cover(album, release_id):
@@ -1207,6 +1213,7 @@ def _on_discogs(album, result=None, error=None):
         return
     n = attach(album, DISCOGS, mds)
     apply_rules(album)
+    offer_dg_cover(album, result)
     pressings_panel.record(album, DISCOGS, items, result['id'])
     _status('Discogs: "%s" (%s) paired with %d of %d tracks'
             % (result.get('title'), result.get('id'), n, len(album.tracks)))
@@ -1486,6 +1493,7 @@ def enable(api: PluginApi) -> None:
     picard_cluster.Cluster._lookup_finished = _cluster_lookup_finished
     api.tagger.metallib_fallback_lookup = fallback_lookup
     api.tagger.metallib_choose_cover = choose_cover            # metallib_folder: a Front unticked
+    api.tagger.metallib_cover_image = covers.cover_image       # metallib_folder: the folder's Front
     api.plugin_config.register_option('discogs_token', '')
     api.plugin_config.register_option(pressings_panel.LAYOUT_OPTION, '')
     api.register_options_page(MetalLibOptionsPage)
