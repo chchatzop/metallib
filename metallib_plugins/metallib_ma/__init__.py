@@ -324,10 +324,62 @@ def _gone(cluster, local):
     return True
 
 
-def start_lookup(cluster):
+# -- several lookups at once: undecided albums wait for the user (user, 2026-09-26) ----------------
+# One cluster looked up: the picker opens at once. Several (Lookup on many clusters, or "Load from
+# Metal Archives" on several): a cluster Metal Archives cannot decide on stays a cluster, marked
+# "Metal Archives: pick one" in the Placement column; "Load from Metal Archives" on it opens the
+# picker with what was already found -- nothing is looked up again. Clear cases load on their own.
+
+PICK_ATTR = 'metallib_ma_pick'      # on the Cluster: the picker waiting for the user
+BATCH_WINDOW_S = 90                 # lookups started this close together count as one batch
+_recent = {}                        # id(cluster) -> when its Metal Archives lookup started
+
+
+def _in_batch(cluster):
+    import time
+    now = time.time()
+    for key in [k for k, t in _recent.items() if now - t > BATCH_WINDOW_S]:
+        del _recent[key]
+    others = [k for k in _recent if k != id(cluster)]
+    busy = any(c is not cluster and getattr(c, '_lookup_task', None) for c in _api.tagger.clusters)
+    return bool(others) or busy
+
+
+def _defer(cluster, local, ask):
+    """Keep the picker for later and mark the cluster."""
+    setattr(cluster, PICK_ATTR, {'local': local, 'ask': ask})
+    cluster.metadata['~placement'] = 'Metal Archives: pick one'
+    cluster.metadata['~placement_reason'] = ask[0]
+    cluster.update()
+    waiting = sum(1 for c in _api.tagger.clusters if getattr(c, PICK_ATTR, None))
+    _status('%d album(s) need a Metal Archives pick — right-click → Load from Metal Archives' % waiting)
+
+
+def _undefer(cluster):
+    if getattr(cluster, PICK_ATTR, None) is not None:
+        setattr(cluster, PICK_ATTR, None)
+        for tag in ('~placement', '~placement_reason'):
+            if tag in cluster.metadata:
+                del cluster.metadata[tag]
+        cluster.update()
+
+
+def start_lookup(cluster, batch=None):
+    waiting = getattr(cluster, PICK_ATTR, None)
+    if waiting is not None:
+        # the user came back to a cluster that waits for a pick: ask now, with what was found
+        _undefer(cluster)
+        if not _gone(cluster, waiting['local']):
+            title, headers, rows, then = waiting['ask']
+            waiting['local']['batch'] = False
+            _ask(title, headers, rows, then, cluster, waiting['local'])
+        return
     local = _local_info(cluster)
     if not local['files']:
         return
+    import time
+    local['batch'] = _in_batch(cluster) if batch is None else batch
+    _recent[id(cluster)] = time.time()
     _status('searching Metal Archives for "%s" by %s...' % (local['album'], local['band']))
     pools.run(pools.MA, partial(_search, local['band'], local['album']),
               partial(_on_search, cluster, local), pools.USER)
@@ -364,8 +416,11 @@ def _on_search(cluster, local, result=None, error=None):
 def _ask(title, headers, rows, then, cluster, local):
     """The picker, opened OUTSIDE the task callback that needs it (audit part 1 L4): a dialog opened
     inside Picard's callback batch froze every other completion -- file loads, saves, the tag panel --
-    until it closed. then(index) runs when a row was picked and the files are still there."""
+    until it closed. then(index) runs when a row was picked and the files are still there.
+    Part of several lookups at once: the cluster waits for the user instead (_defer)."""
     from PyQt6 import QtCore
+    if local.get('batch'):
+        return _defer(cluster, local, (title, headers, rows, then))
 
     def open_it():
         i = _pick(title, headers, rows)
@@ -1142,9 +1197,10 @@ class LoadFromMetalArchives(BaseAction):
     TITLE = "Load from Metal Archives"
 
     def callback(self, objs):
-        for obj in objs:
-            if isinstance(obj, Cluster) and not obj.special:
-                start_lookup(obj)
+        clusters = [o for o in objs if isinstance(o, Cluster) and not o.special]
+        for cluster in clusters:
+            # several at once: the undecided ones wait for a pick; one waiting cluster: ask now
+            start_lookup(cluster, batch=len(clusters) > 1 and getattr(cluster, PICK_ATTR, None) is None)
 
 
 # -- folder names as hints for untagged files --------------------------------------------------------
