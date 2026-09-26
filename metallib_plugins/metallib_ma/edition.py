@@ -47,3 +47,25 @@ def derive(md):
 
 
 TAGS = ('edition', 'remaster', 'reissue')
+
+
+# -- the media tag, the library's words (user, 2026-09-27) ----------------------------------------
+# "Digital Media", "CD", "Vinyl", "Cassette"; a CD in a digipak also gets "Digipak" as a second value
+# ("CD; Digipak", 44 of 1,500 sampled library albums). Scene values like "WEB/FLAC 16bit" or
+# Discogs' "CD, Album, Digipak" are turned into those; an unrecognised one (DVD) is left as it is.
+
+MEDIA_WORDS = {'Digital': 'Digital Media', 'CD': 'CD', 'Vinyl': 'Vinyl', 'Cassette': 'Cassette'}
+
+
+def media_values(values, notes='', fallback=''):
+    """-> the media tag values the library way, or None to leave them (nothing recognisable)."""
+    from .ma_release import format_kind
+    values = [v for v in values if v]
+    kind = next((format_kind(v) for v in values if format_kind(v)), '') or format_kind(fallback)
+    if not kind:
+        return None
+    out = [MEDIA_WORDS[kind]]
+    text = ' '.join(values + [notes]).lower()
+    if kind == 'CD' and ('digipak' in text or 'digipack' in text):
+        out.append('Digipak')
+    return out

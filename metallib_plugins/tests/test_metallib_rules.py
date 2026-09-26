@@ -75,3 +75,29 @@ def test_pressing_tags_the_library_way():
     re_ = Metadata({'date': '2004', 'originalyear': '1996', 'media': 'CD; Digipak'})
     assert ed.derive(re_) == {'reissue': '2004'}
     assert ed.derive(Metadata({'date': '1997', 'originalyear': '1996'})) == {}   # one year later: not a reissue
+
+
+def test_media_the_library_way():
+    # user: "Digital Media", "CD", "Vinyl", "Cassette"; "Digipak" as a 2nd value on a CD
+    import importlib.util
+    import sys
+    name = 'mltest_ma_pkg'
+    if name not in sys.modules:
+        d = Path(__file__).resolve().parents[1] / 'metallib_ma'
+        spec = importlib.util.spec_from_file_location(name, d / '__init__.py', submodule_search_locations=[str(d)])
+        pkg = importlib.util.module_from_spec(spec)
+        sys.modules[name] = pkg
+        for sub in ('ma_release', 'edition'):
+            s = importlib.util.spec_from_file_location(name + '.' + sub, d / (sub + '.py'))
+            m = importlib.util.module_from_spec(s)
+            sys.modules[name + '.' + sub] = m
+            s.loader.exec_module(m)
+    ed = sys.modules[name + '.edition']
+    assert ed.media_values(['WEB/FLAC 16bit']) == ['Digital Media']          # user's 0N0 "Path"
+    assert ed.media_values(['EP-WEB (16bit)']) == ['Digital Media']
+    assert ed.media_values(['CD, Album, Digipak']) == ['CD', 'Digipak']
+    assert ed.media_values(['CD'], notes='Digipak') == ['CD', 'Digipak']      # from the pressing's notes
+    assert ed.media_values(['SHM-CD']) == ['CD'] and ed.media_values(['12" Vinyl']) == ['Vinyl']
+    assert ed.media_values(['Cass']) == ['Cassette'] and ed.media_values(['Digital Media']) == ['Digital Media']
+    assert ed.media_values(['DVD']) is None                                  # unrecognised: left as it is
+    assert ed.media_values([], fallback='Digital') == ['Digital Media']      # nothing: the folder name

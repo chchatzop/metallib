@@ -38,7 +38,7 @@ def format_kind(ma_format):
     f = (ma_format or '').lower()
     # Discogs calls digital releases "File" ("File, FLAC, Album"); vinyl "2xLP", tape "Cass".
     # Discogs version lists often omit "File" and only name the codec ("ALAC, Album, Stereo").
-    if 'digital' in f or re.search(r'\b(?:file|flac|alac|mp3|aac|wav|aiff|ogg|opus)\b', f):
+    if 'digital' in f or re.search(r'\b(?:file|flac|alac|mp3|aac|wav|aiff|ogg|opus|web)\b', f):
         return DIGITAL
     if 'vinyl' in f or re.search(r'\b(7|10|12)"', f) or re.search(r'\b(?:\d+x)?lp\b', f):
         return VINYL

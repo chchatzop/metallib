@@ -1007,6 +1007,20 @@ def mb_release_is_the_pressing(sources):
     return not (a and b and a != b)
 
 
+def _folder_media(file):
+    filename = getattr(file, 'filename', '')
+    return folder_hints(filename).get('media', '') if filename else ''
+
+
+def _set_media(md, user, fallback=''):
+    if 'media' in user:
+        return
+    notes = ' '.join(md.getall('~releasepackaging') + md.getall('~releasecomment'))
+    values = edition.media_values(list(md.getall('media')), notes, fallback)
+    if values is not None and list(md.getall('media')) != values:
+        md['media'] = values
+
+
 def _tidy_track(track, sources, user):
     """Plain tags in New Value (user): no release-track / disc id without a release id (they belong
     to one release), then only the keep-list (keep.py) -- no credits, lyrics, comments, scene tags,
@@ -1019,6 +1033,8 @@ def _tidy_track(track, sources, user):
                     del md[tag]
         make_plain(md, user)
         _set_band_country(md, sources, user, track.metadata, orig)
+        # the media tag in the library's words; an unrecognisable one: what the folder name says
+        _set_media(md, user, _folder_media(track.files[0]) if track.files else '')
     # CATNUM follows the catalog number and media just set (the MetalLib Naming plugin's rule)
     update_catnum = getattr(getattr(_api, 'tagger', None), 'metallib_update_catnum', None)
     if update_catnum is not None:
@@ -1039,6 +1055,7 @@ def on_file_saving(api, file):
     removed = make_plain(file.metadata, user)
     _set_band_country(file.metadata, getattr(track, 'source_metadata', None) if track else None, user,
                       track.metadata if track else None, file.orig_metadata)
+    _set_media(file.metadata, user, _folder_media(file))
     if removed:
         api.logger.debug("plain tags: %s drops %s", file.base_filename, ', '.join(sorted(removed)))
 
