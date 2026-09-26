@@ -70,6 +70,10 @@ def source_objects(files, tracks):
 # shows only tags it would write (its keep-list); what the files already have always has a row.
 row_filter = None
 
+# Tags that always get a row, empty or not, so a value can be typed straight in (MetalLib: the
+# library's pressing tags edition / reissue / remaster / showcat, user).
+always_rows = ()
+
 
 @_race_safe(set)
 def source_tag_names(objects):
@@ -83,6 +87,8 @@ def source_tag_names(objects):
     if row_filter is not None:
         tags = {t for t in tags if row_filter(t)}
     files = [o for o in objects if isinstance(o, File)]
+    if files:
+        tags.update(always_rows)
     return {t for t in tags if all(f.supports_tag(t) for f in files)}
 
 
