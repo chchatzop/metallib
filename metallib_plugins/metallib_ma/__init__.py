@@ -575,6 +575,8 @@ def _on_background_ma(album, result=None, error=None):
     if error or not result:
         if error:
             _api.logger.warning("background Metal Archives lookup failed: %s", error)
+        else:           # searched, and Metal Archives has no such album: the list says so
+            _when_loaded(album, lambda: pressings_panel.nothing_found(album, METAL_ARCHIVES))
         return
     page, version = result['chosen']['page'], result['chosen']['version']
     node = build_release(page, version, result['result']['original_date'])
