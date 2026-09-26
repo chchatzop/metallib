@@ -501,6 +501,9 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
         album.load()                # (a restored album still fetching its page loads when it arrives)
     _status('loaded "%s" (%s %s) from Metal Archives' % (page['album'], version.get('format', ''),
                                                           version.get('catalog', '')))
+    # New Value by the rules as soon as the album is there -- also when no other source ever answers
+    # (then band country, plain tags, pressing tags and CATNUM were only set at save)
+    _when_loaded(album, partial(apply_rules, album))
     start_mb_lookup(album, page['band'], page['album'])
     start_discogs(album)
     if page['cover_url']:
@@ -584,6 +587,7 @@ def on_mb_album(api, album, metadata, release_node):
              'media': (media[0].get('format') or '') if media else '',
              'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
     pools.run(pools.MA, partial(_background_ma, band, title, local), partial(_on_background_ma, album))
+    _when_loaded(album, partial(apply_rules, album))       # see _build_album
     start_discogs(album)
     rg = (release_node.get('release-group') or {}).get('id')
     if rg:

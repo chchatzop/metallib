@@ -412,6 +412,29 @@ def folder_line(album):
     return "%s%s — %d tracks" % (folders[0], more, n)
 
 
+def target_line(album):
+    """The folder the album's files will get from Picard's naming (MetalLib's script), for the title
+    line -- or why they stay."""
+    if album.id not in _api.tagger.albums:
+        return ''
+    files = list(album.iterfiles())
+    if not files:
+        return ''
+    from picard.config import get_config
+    setting = get_config().setting
+    if not (setting['move_files'] or setting['rename_files']):
+        return 'files stay where they are (renaming and moving are off)'
+    import os
+    f = files[0]
+    try:
+        new = os.path.dirname(f.make_filename(f.filename, f.metadata))
+    except Exception as e:                      # a naming script error: say so, don't break the panel
+        return 'naming script error: %s' % e
+    if os.path.normcase(new) == os.path.normcase(os.path.dirname(f.filename)):
+        return 'stays in this folder'
+    return new
+
+
 class PressingsPanel(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -422,7 +445,23 @@ class PressingsPanel(QtWidgets.QWidget):
         # Title and list headers stay one text line high; all extra height goes to the lists (user).
         fixed = (QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
         self.title = _PathLabel('Pressings — select an album')
-        layout.addWidget(self.title, 0)
+        # ... and after an arrow, the folder the album will be saved into -- live, as tags change (user)
+        self.target = _PathLabel('')
+        font = self.target.font()
+        font.setBold(True)
+        self.target.setFont(font)
+        self.arrow = QtWidgets.QLabel('→')
+        self.arrow.setSizePolicy(*fixed)
+        line = QtWidgets.QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(8)
+        line.addWidget(self.title, 1)
+        line.addWidget(self.arrow, 0)
+        line.addWidget(self.target, 1)
+        layout.addLayout(line, 0)
+        self._target_timer = QtCore.QTimer(self)
+        self._target_timer.timeout.connect(self._show_target)
+        self._target_timer.start(1000)
         # A splitter, so the borders between the three lists can be dragged (user).
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.splitter.setObjectName('metallib_pressings_lists')
@@ -449,6 +488,13 @@ class PressingsPanel(QtWidgets.QWidget):
     def show_album(self, album):
         self.album = album
         self.refresh()
+        self._show_target()
+
+    def _show_target(self):
+        text = target_line(self.album) if self.album is not None and self.isVisible() else ''
+        if text != self.target._full:
+            self.target.set_full(text)
+        self.arrow.setVisible(bool(text))
 
     def refresh(self):
         album = self.album
