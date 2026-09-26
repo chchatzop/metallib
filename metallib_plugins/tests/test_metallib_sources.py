@@ -199,3 +199,32 @@ def test_position_without_a_length_needs_the_title():
     # same order, titles agree, lengths missing: still the same tracklist
     same = [_t('Intro', 61, 1), _t('Storm', 301, 2), _t('Winter', 0, 3), _t('Outro', 0, 4)]
     assert r.pair_tracks(targets, same) == {0: 0, 1: 1, 2: 2, 3: 3}
+
+
+class TestMbIdsOnlyForThePressing(TestApplyRules):
+    """User (Absurd "Werwolfthron"): the MusicBrainz release (2001) was another pressing than the
+    chosen one (Metal Archives 2002); its release ids must not be written."""
+
+    def test_other_year_drops_release_ids_but_keeps_album_level_ids(self):
+        album = self._album_with_both_sources()
+        for t in album.tracks:
+            t.source_metadata['MusicBrainz']['date'] = '1979'
+        self.plugin.apply_rules(album)
+        t = album.tracks[0]
+        self.assertNotIn('musicbrainz_albumid', t.metadata)
+        self.assertNotIn('musicbrainz_trackid', t.metadata)
+        self.assertNotIn('barcode', t.metadata)                   # belongs to that release too
+        self.assertTrue(t.metadata['musicbrainz_recordingid'])     # the recording is the same music
+
+    def test_same_year_keeps_them(self):
+        album = self._album_with_both_sources()
+        self.plugin.apply_rules(album)
+        self.assertTrue(album.tracks[0].metadata['musicbrainz_albumid'])
+
+    def test_catalog_numbers_compared_loosely(self):
+        from picard.metadata import Metadata
+        p = self.plugin
+        mb = Metadata(date='2002', catalognumber='NK-001')
+        self.assertTrue(p.mb_release_is_the_pressing({'MusicBrainz': mb, 'Metal Archives': Metadata(date='2002', catalognumber='NK 001')}))
+        self.assertFalse(p.mb_release_is_the_pressing({'MusicBrainz': mb, 'Metal Archives': Metadata(date='2002', catalognumber='NK 002')}))
+        self.assertTrue(p.mb_release_is_the_pressing({'MusicBrainz': mb, 'Metal Archives': Metadata(date='2002')}))

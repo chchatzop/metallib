@@ -888,6 +888,28 @@ def _as_list(value):
     return [value] if isinstance(value, str) else list(value)
 
 
+def _catalog_key(md):
+    value = ((md.getall('catalognumber') or [''])[0] or '').strip()
+    if value.lower() in ('[none]', 'none', 'n/a', ''):
+        return ''
+    return re.sub(r'[\W_]+', '', value).upper()
+
+
+def mb_release_is_the_pressing(sources):
+    """Does the MusicBrainz release agree with the chosen pressing (the Metal Archives column, else
+    Discogs)? It must not contradict it: the same year where both have one, the same catalogue number
+    where both have one. Without another source there is nothing to contradict it."""
+    mb = sources.get(MUSICBRAINZ)
+    pressing = sources.get(METAL_ARCHIVES) or sources.get(DISCOGS)
+    if mb is None or pressing is None:
+        return True
+    a, b = (mb['date'] or '')[:4], (pressing['date'] or '')[:4]
+    if a.isdigit() and b.isdigit() and a != b:
+        return False
+    a, b = _catalog_key(mb), _catalog_key(pressing)
+    return not (a and b and a != b)
+
+
 def _tidy_track(track, sources, user):
     """Plain tags in New Value (user): no release-track / disc id without a release id (they belong
     to one release), then only the keep-list (keep.py) -- no credits, lyrics, comments, scene tags,
@@ -978,6 +1000,13 @@ def apply_rules(album):
                 f.metadata[tag] = values
             changed += 1
         track.rule_sources = rule_sources
+        if not mb_release_is_the_pressing(sources):
+            # its release ids would tie the files to another pressing: only the album-level ids stay
+            # (artist, release group, recording) -- user, Absurd "Werwolfthron" (MB 2001, the CD 2002)
+            for md in [track.metadata] + [f.metadata for f in track.files]:
+                for tag in ('musicbrainz_albumid',) + _RELEASE_ONLY_IDS:
+                    if tag in md and tag not in user:
+                        del md[tag]
         _tidy_track(track, sources, user)
         for tag, values in _hidden_facts(sources, user, rule_sources).items():
             track.metadata[tag] = values
