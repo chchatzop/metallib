@@ -72,7 +72,10 @@ def catnum_for(file):
     an earlier catnum WEB) -> WEB; else the album's media with the first catalog number."""
     md = file.metadata
     rip = _folder_media(md['~dirname'] or os.path.dirname(file.filename))
-    if rip == 'WEB' or md['catnum'] == 'WEB':
+    # the file's OWN saved CATNUM (not New Value's: that is this rule's own earlier result, which
+    # kept "WEB" after the pressing became a CD -- user, A Different Cloud "Sult")
+    orig = getattr(file, 'orig_metadata', None)
+    if rip == 'WEB' or (orig is not None and orig['catnum'] == 'WEB'):
         return 'WEB'
     code = _media_code(_file_album_media(file)) or rip
     catalog = (md.getall('catalognumber') or [''])[0]

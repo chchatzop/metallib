@@ -683,3 +683,8 @@ def test_a_musicbrainz_release_without_lengths_is_not_a_confirmed_match(monkeypa
     fitting = {'id': 'r2', 'media': [{'tracks': [{'length': 201000}, {'length': 299000}]}]}
     m._on_mb_release(object(), [], [], document=fitting)
     assert used == [False, True]
+
+
+def test_unknown_band_country_from_the_search_results_is_xu():
+    # user, A Different Cloud: Metal Archives' search results give an unknown country as "ZZ"
+    assert r.country_code('ZZ') == 'XU' and r.country_code('Unknown') == 'XU' and r.country_code('NO') == 'NO'

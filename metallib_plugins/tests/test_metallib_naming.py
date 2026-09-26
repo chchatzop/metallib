@@ -227,6 +227,16 @@ class CatnumTag(PicardTestCase):
         f = F(media='CD', catalognumber='burnout016')
         self.assertTrue(mod.update_catnum(f))
         self.assertEqual(f.metadata['catnum'], 'burnout016 CD')
+        # New Value's CATNUM "WEB" (from a digital pressing picked before) is not the file's own: a CD
+        # pressing now gives "OATH076 CD" (user, A Different Cloud "Sult")
+        cd = F(media='CD', catalognumber='OATH076', catnum='WEB')
+        cd.orig_metadata = Metadata()
+        self.assertTrue(mod.update_catnum(cd))
+        self.assertEqual(cd.metadata['catnum'], 'OATH076 CD')
+        web = F(media='CD', catalognumber='X1')
+        web.orig_metadata = Metadata(catnum='WEB')                         # the file itself is a web copy
+        mod.update_catnum(web)
+        self.assertEqual(web.metadata['catnum'], 'WEB')
         mine = F(media='CD', catalognumber='burnout016', catnum='MY OWN')
         mine.value_sources = {'catnum': 'user'}
         self.assertFalse(mod.update_catnum(mine))

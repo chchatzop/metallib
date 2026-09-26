@@ -167,8 +167,8 @@ def country_code(name):
     wanted = (name or '').strip().lower()
     if wanted in ('international', 'worldwide', 'xw'):
         return 'XW'
-    if wanted in ('unknown', 'n/a', 'xu'):
-        return 'XU'
+    if wanted in ('unknown', 'n/a', 'xu', 'zz', 'xx'):
+        return 'XU'                     # Metal Archives' search results give an unknown country as "ZZ"
     if len(wanted) == 2 and wanted.isalpha():
         return wanted.upper()
     for code, country in RELEASE_COUNTRIES.items():
