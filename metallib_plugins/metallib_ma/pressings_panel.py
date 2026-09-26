@@ -67,13 +67,16 @@ def local_info(album):
     """What the pressings are compared with: the files' lengths (always current), and the album's
     catalog / media / year AS FIRST SEEN -- picking a pressing changes those in New Value, which
     must not re-rank the lists (a clicked pressing jumped to 2nd place, user)."""
-    import os
     ref = getattr(album, _REF_ATTR, None)
     if ref is None and album.loaded:
-        files = list(album.iterfiles())
-        ref = {'folder': os.path.basename(os.path.dirname(files[0].filename)) if files else '',
-               'catalog': album.metadata['catalognumber'], 'media': album.metadata['media'],
-               'year': (album.metadata['originaldate'] or album.metadata['date'] or '')[:4]}
+        # the files' own evidence first (folder name, their tags), the loaded release's only where
+        # the files say nothing (user: A Different Cloud "Sult" ranked the digital release first)
+        from . import file_evidence
+        ev = file_evidence(album.iterfiles())
+        ref = {'folder': ev['folder'],
+               'catalog': ev['catalog'] or album.metadata['catalognumber'],
+               'media': ev['media'] or album.metadata['media'],
+               'year': ev['year'] or (album.metadata['originaldate'] or album.metadata['date'] or '')[:4]}
         setattr(album, _REF_ATTR, ref)
     info = dict(ref or {'folder': '', 'catalog': '', 'media': '', 'year': ''})
     info.update(track_count=len(album.tracks), lengths=[_seconds(t) for t in album.tracks])

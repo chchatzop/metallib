@@ -273,7 +273,8 @@ def _resolve(hit, local, max_fetches=MAX_PRESSING_FETCHES):
     if not versions:
         versions = [{'album_id': base['album_id'], 'date': base['date'], 'label': base['label'],
                      'catalog': base['catalog'], 'format': base['format'], 'desc': ''}]
-    candidates, why = narrow_pressings(versions, local['folder'], local['catalog'], local['media'])
+    candidates, why = narrow_pressings(versions, local['folder'], local['catalog'], local['media'],
+                                       local.get('year', ''))
     checked = []
     for v in candidates[:max_fetches]:
         page = base if v['album_id'] == base['album_id'] else client().album(v['album_id'])
@@ -304,14 +305,36 @@ def _local_info(cluster):
                 or hints.get('artist', ''),
         'album': cluster.metadata['album'] or (md['album'] if first else '') or hints.get('album', ''),
         'folder': os.path.basename(os.path.dirname(first.filename)) if first else '',
-        'catalog': (md['catalognumber'] if first else '') or hints.get('catalog', ''),
-        'media': (md['media'] if first else '') or hints.get('media', ''),
+        'catalog': hints.get('catalog', '') or (next((md[t] for t in _CATALOG_TAGS if md[t]), '') if first else ''),
+        'media': hints.get('media', '') or (md['media'] if first else ''),
+        'year': hints.get('year', '') or ((md['date'] or '')[:4] if first else ''),
         'lengths': [round((f.orig_metadata.length or 0) / 1000) for f in files],
     }
 
 
 def _status(text):
     _api.tagger.window.set_statusbar_message('MetalLib: %s', text)
+
+
+# Catalogue numbers in the files' own tags, under the names rippers use (Vorbis keys come lowercase).
+_CATALOG_TAGS = ('catalognumber', 'catalog', 'catalog #', 'catalog#', 'catalogue', 'catalognum', 'catno',
+                 'cat#', 'labelno', 'label no')
+
+
+def file_evidence(files):
+    """What the files themselves say about their pressing (user: trust them before the release a
+    lookup loaded): the folder name (media "-CD-", a catalogue number, the year), else the files'
+    own tags. -> {'folder', 'catalog', 'media', 'year'}."""
+    files = list(files)
+    if not files:
+        return {'folder': '', 'catalog': '', 'media': '', 'year': ''}
+    f = files[0]
+    md = f.orig_metadata
+    hints = folder_hints(f.filename)
+    catalog = hints.get('catalog') or next((md[t] for t in _CATALOG_TAGS if md[t]), '')
+    return {'folder': os.path.basename(os.path.dirname(f.filename)), 'catalog': catalog,
+            'media': hints.get('media') or md['media'],
+            'year': hints.get('year') or (md['date'] or md['originaldate'] or '')[:4]}
 
 
 def _files_still_there(cluster, local):
@@ -645,10 +668,18 @@ def on_mb_album(api, album, metadata, release_node):
         return
     band, title = metadata['albumartist'], metadata['album']
     media = release_node.get('media') or []
-    local = {'folder': '', 'catalog': metadata['catalognumber'],
-             'media': (media[0].get('format') or '') if media else '',
-             'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
-    pools.run(pools.MA, partial(_background_ma, band, title, local), partial(_on_background_ma, album))
+    release = {'catalog': metadata['catalognumber'], 'media': (media[0].get('format') or '') if media else '',
+               'year': (metadata['date'] or '')[:4],
+               'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
+
+    def start():
+        # the files' own evidence first, the MusicBrainz release's only where the files say nothing
+        ev = file_evidence(album.iterfiles())
+        local = {'folder': ev['folder'], 'catalog': ev['catalog'] or release['catalog'],
+                 'media': ev['media'] or release['media'], 'year': ev['year'] or release['year'],
+                 'lengths': release['lengths']}
+        pools.run(pools.MA, partial(_background_ma, band, title, local), partial(_on_background_ma, album))
+    _when_loaded(album, start)
     _when_loaded(album, partial(apply_rules, album))       # see _build_album
     offer_mb_cover(album, release_node.get('id'))
     start_discogs(album)
@@ -1039,6 +1070,7 @@ def apply_rules(album):
             # the album's own values that the switched-off source put into New Value
             tags |= {t for t in track.metadata if not t.startswith('~')}
         perf = _performer_source(sources)
+        mb_is_pressing = mb_release_is_the_pressing(sources)
         for tag in sorted(tags):
             if tag in user or tag in POSITION_TAGS:
                 continue
@@ -1047,7 +1079,11 @@ def apply_rules(album):
                     if tag in md:
                         del md[tag]
                 continue
-            choice = choose(tag, {name: list(md.getall(tag)) for name, md in sources.items()})
+            choice = choose(tag, {name: list(md.getall(tag)) for name, md in sources.items()
+                                  # a MusicBrainz release that is another pressing gives no pressing
+                                  # values (date, label, catalog, media...) -- user, "Sult": its 2022
+                                  # date beat the chosen 2024 CD's
+                                  if mb_is_pressing or name != MUSICBRAINZ or tag not in PRESSING_TAGS})
             if choice is None:
                 if base_mode == pressings_panel.OFF or (base_mode == pressings_panel.ALBUM_ONLY
                                                         and tag in PRESSING_TAGS) or tag in rule_sources:
@@ -1070,7 +1106,7 @@ def apply_rules(album):
                 f.metadata[tag] = values
             changed += 1
         track.rule_sources = rule_sources
-        if not mb_release_is_the_pressing(sources):
+        if not mb_is_pressing:
             # its release ids would tie the files to another pressing: only the album-level ids stay
             # (artist, release group, recording) -- user, Absurd "Werwolfthron" (MB 2001, the CD 2002)
             for md in [track.metadata] + [f.metadata for f in track.files]:
@@ -1165,7 +1201,8 @@ def _background_discogs(band, title, local):
         versions = [{'album_id': v.get('id'), 'catalog': v.get('catno', ''), 'format': v.get('format', ''),
                      'label': v.get('label', ''), 'country': v.get('country', '')}
                     for v in raw if v.get('id')]
-        cands, _ = narrow_pressings(versions, local['folder'], local['catalog'], local['media'])
+        cands, _ = narrow_pressings(versions, local['folder'], local['catalog'], local['media'],
+                                    local.get('year', ''))
         for v in cands[:DG_PRESSING_FETCHES]:
             rel = release if v['album_id'] == release.get('id') else client.release(v['album_id'])
             # durations that fit; a release without any durations cannot confirm the pressing
@@ -1190,10 +1227,11 @@ def start_discogs(album):
         return
     def begin():
         files = list(album.iterfiles())
+        ev = file_evidence(files)
         local = {'titles': [t.metadata['title'] for t in album.tracks],
                  'lengths': [round((t.metadata.length or 0) / 1000) for t in album.tracks],
-                 'folder': os.path.basename(os.path.dirname(files[0].filename)) if files else '',
-                 'catalog': album.metadata['catalognumber'], 'media': album.metadata['media']}
+                 'folder': ev['folder'], 'catalog': ev['catalog'] or album.metadata['catalognumber'],
+                 'media': ev['media'] or album.metadata['media'], 'year': ev['year']}
         pools.run(pools.DISCOGS, partial(_background_discogs, album.metadata['albumartist'], album.metadata['album'], local),
                         partial(_on_discogs, album))
     _when_loaded(album, begin)

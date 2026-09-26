@@ -688,3 +688,14 @@ def test_a_musicbrainz_release_without_lengths_is_not_a_confirmed_match(monkeypa
 def test_unknown_band_country_from_the_search_results_is_xu():
     # user, A Different Cloud: Metal Archives' search results give an unknown country as "ZZ"
     assert r.country_code('ZZ') == 'XU' and r.country_code('Unknown') == 'XU' and r.country_code('NO') == 'NO'
+
+
+def test_same_media_pressings_from_the_files_year_first():
+    # user, A Different Cloud "Sult": the files are the 2024 CD; the 2022 digital release was picked
+    versions = [{'album_id': 1, 'date': 'September 26th, 2022', 'format': 'Digital', 'catalog': 'N/A'},
+                {'album_id': 2, 'date': 'April 12th, 2021', 'format': 'CD', 'catalog': 'X1'},
+                {'album_id': 3, 'date': 'April 12th, 2024', 'format': 'CD', 'catalog': 'Spell 220'}]
+    # what the lookup now passes: the files' evidence (folder "-CD-", 2024), not the MB release's media
+    got, why = r.narrow_pressings(versions, 'A_Different_Cloud-Sult-CD-FLAC-2024-MOONBLOOD', '', 'CD', '2024')
+    assert why == 'media (cd)' or 'media' in why
+    assert [v['album_id'] for v in got] == [3, 2]              # CD from the folder name; 2024 first

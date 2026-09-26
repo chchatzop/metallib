@@ -110,9 +110,10 @@ def fits(track_lengths, file_lengths):
     return matched >= 0.8 * known
 
 
-def narrow_pressings(versions, folder_name, catalog_tag, media_tag):
+def narrow_pressings(versions, folder_name, catalog_tag, media_tag, year=''):
     """Pressings worth fetching, most specific evidence first: a catalog number named in the
-    folder/tag wins outright; else the ones on the same media; else all."""
+    folder/tag wins outright; else the ones on the same media -- those from the files' year first
+    (user, A Different Cloud "Sult": the 2024 CD, not the 2022 digital release); else all."""
     by_cat = [v for v in versions if catalog_matches(v.get('catalog'), folder_name, catalog_tag)]
     if by_cat:
         return by_cat, 'catalog number'
@@ -120,6 +121,9 @@ def narrow_pressings(versions, folder_name, catalog_tag, media_tag):
     if hint:
         same = [v for v in versions if format_kind(v.get('format')) == hint]
         if same:
+            if year:
+                # dates read "April 12th, 2024" (Metal Archives) or "2024-04-12" (Discogs)
+                same.sort(key=lambda v: str(year)[:4] not in re.findall(r'(?:19|20)\d\d', str(v.get('date') or '')))
             return same, 'media (%s)' % hint
         # Nothing on the same media: prefer CD-like / unknown formats over vinyl and tape, whose
         # side-based numbering (A1, B2 -> discs) fits a digital or CD copy worst.
