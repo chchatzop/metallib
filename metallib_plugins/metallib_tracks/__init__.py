@@ -355,6 +355,10 @@ def enable(api: PluginApi) -> None:
     api.register_album_action(PlaceByFingerprint)
     api.register_script_variable('_placement', documentation='"renumbered", "unplaced" or empty.')
     api.register_script_variable('_placement_reason', documentation='Why a file was flagged.')
+    # the current file name next to the title (user): a custom column, added once
+    from . import file_column
+    api.plugin_config.register_option(file_column.OPTION, False)
+    file_column.install(api)
 
 
 def disable() -> None:

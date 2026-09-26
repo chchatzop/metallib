@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-# The Picard internals MetalLib's plugins hook into (audit part 1 L8, part 2 L6).
+# The Picard internals MetalLib's plugins hook into or call (audit part 1 L8, part 2 L6).
 #
 # Picard 3 has no plugin hooks for these, so the plugins replace these functions. Replacing an attribute
 # never fails: if Picard renames or changes one of them, the MetalLib feature would just silently stop.
@@ -15,6 +15,7 @@ from picard import (
     tagger as picard_tagger,
 )
 from picard.session import session_loader
+from picard.ui.itemviews import basetreeview
 
 
 HOOKS = [
@@ -42,6 +43,8 @@ HOOKS = [
     (session_loader.AlbumManager, 'load_album_with_strategy', ['self', 'album_id', 'cached_node'],
      'metallib_ma: session restore'),
     (session_loader.AlbumManager, '_build_from_cache', ['self', 'album_id', 'node'], 'metallib_ma: session restore'),
+    (basetreeview.BaseTreeView, '_set_header_labels', ['self', 'update_column_count'],
+     'metallib_tracks: the File column appears without a restart (called, not replaced)'),
 ]
 
 
