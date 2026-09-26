@@ -56,3 +56,22 @@ def test_track_position_never_comes_from_a_source_column():
     # A 10-track vinyl in the MA column must not renumber an 11-track CD.
     for tag in ('tracknumber', 'totaltracks', 'discnumber', 'totaldiscs'):
         assert choose(tag, {MB: ['7'], MA: ['6']}) is None, tag
+
+
+def test_pressing_tags_the_library_way():
+    # user: A.D.N. 1988, the 2010 "Remastered, limited edition" CD -> edition Lim, remaster 2010
+    import importlib.util
+    from picard.metadata import Metadata
+    spec = importlib.util.spec_from_file_location(
+        'mltest_edition', Path(__file__).resolve().parents[1] / 'metallib_ma' / 'edition.py')
+    ed = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ed)
+    adn = Metadata({'~releasecomment': 'Remastered, limited edition', 'media': 'CD', 'date': '2010',
+                    'originalyear': '1988', 'releasecountry': 'ES'})
+    assert ed.derive(adn) == {'edition': ['Lim'], 'remaster': '2010'}
+    jap = Metadata({'~releasecomment': 'Limited edition', '~pressingcountry': 'JP', 'releasecountry': 'NO',
+                    'date': '1996-05-01', 'originaldate': '1996-02-01'})
+    assert ed.derive(jap) == {'edition': ['Jap', 'Lim']}                    # same year: no RE
+    re_ = Metadata({'date': '2004', 'originalyear': '1996', 'media': 'CD; Digipak'})
+    assert ed.derive(re_) == {'reissue': '2004'}
+    assert ed.derive(Metadata({'date': '1997', 'originalyear': '1996'})) == {}   # one year later: not a reissue

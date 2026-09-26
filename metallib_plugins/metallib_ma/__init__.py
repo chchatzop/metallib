@@ -63,6 +63,7 @@ from .discogs_release import (
 )
 from .folder_parse import folder_hints
 from . import (
+    edition,
     pools,
     pressings_panel,
 )
@@ -218,6 +219,7 @@ class MetalArchivesAlbum(Album):
         sources['Metal Archives'] = ma
         track.source_metadata = sources
         make_plain(track.metadata)      # New Value: only what MetalLib writes (the column keeps it all)
+        track.metadata.update(edition.derive(track.metadata))
         return track
 
     def _apply_band(self, metadata):
@@ -561,6 +563,7 @@ def on_track_built(api, track, metadata, track_node, release_node=None):
         _mb_fix(release_node, mb)
     set_own_source(track, MUSICBRAINZ, mb)
     make_plain(metadata)            # New Value: only what MetalLib writes (the column keeps it all)
+    metadata.update(edition.derive(metadata))
 
 
 def _mb_fix(release_node, md):
@@ -860,6 +863,27 @@ def _set_band_country(md, sources, user, fallback_md=None, orig=None):
         md['releasecountry'] = _band_country(md, fallback_md, orig)
 
 
+def _set_pressing_tags(track, user):
+    """edition / remaster / reissue from the chosen pressing (edition.py, the naming script's rules):
+    written as tags too, the library's way (user). A value typed by the user stays; one this rule set
+    before goes when the pressing no longer says so (another pressing picked)."""
+    derived = edition.derive(track.metadata)
+    before = getattr(track, 'metallib_pressing_tags', None) or {}
+    for md in [track.metadata] + [f.metadata for f in track.files]:
+        for tag in edition.TAGS:
+            if tag in user:
+                continue
+            if tag in derived:
+                md[tag] = derived[tag]
+            elif tag in before and tag in md and _as_list(md.getall(tag)) == _as_list(before[tag]):
+                del md[tag]
+    track.metallib_pressing_tags = derived
+
+
+def _as_list(value):
+    return [value] if isinstance(value, str) else list(value)
+
+
 def _tidy_track(track, sources, user):
     """Plain tags in New Value (user): no release-track / disc id without a release id (they belong
     to one release), then only the keep-list (keep.py) -- no credits, lyrics, comments, scene tags,
@@ -912,6 +936,7 @@ def apply_rules(album):
             user.update(getattr(f, 'value_sources', None) or {})
         if len(sources) < 2 and base_mode is None:
             _tidy_track(track, sources, user)       # one source: still no leftovers from earlier saves
+            _set_pressing_tags(track, user)
             for f in track.files:
                 f.update()
             continue
@@ -956,6 +981,7 @@ def apply_rules(album):
                 f.metadata[tag] = values
             if tag.startswith('~ma_band_') or tag in _PRESSING_FACTS:
                 album_values.setdefault(tag, values)
+        _set_pressing_tags(track, user)
         for f in track.files:
             f.update()
         track.update()
