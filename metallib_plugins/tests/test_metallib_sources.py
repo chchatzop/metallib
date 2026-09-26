@@ -228,3 +228,19 @@ class TestMbIdsOnlyForThePressing(TestApplyRules):
         self.assertTrue(p.mb_release_is_the_pressing({'MusicBrainz': mb, 'Metal Archives': Metadata(date='2002', catalognumber='NK 001')}))
         self.assertFalse(p.mb_release_is_the_pressing({'MusicBrainz': mb, 'Metal Archives': Metadata(date='2002', catalognumber='NK 002')}))
         self.assertTrue(p.mb_release_is_the_pressing({'MusicBrainz': mb, 'Metal Archives': Metadata(date='2002')}))
+
+
+class TestValueNoSourceGivesAnyMore(TestApplyRules):
+    def test_catalog_from_a_source_set_to_album_info_only_goes_back_to_the_files(self):
+        # user: a Discogs pressing's catalogue number stayed in New Value after "Album info only"
+        album = self._album_with_both_sources()
+        self.plugin.apply_rules(album)
+        t = album.tracks[0]
+        self.assertEqual(t.metadata['catalognumber'], 'SHVL 804')          # from Metal Archives
+        for tr in album.tracks:                                             # what "Album info only" does
+            for md in tr.source_metadata.values():
+                if 'catalognumber' in md:
+                    del md['catalognumber']
+        self.plugin.apply_rules(album)
+        self.assertNotIn('catalognumber', t.metadata)                       # no file value: gone
+        self.assertNotIn('catalognumber', t.rule_sources)

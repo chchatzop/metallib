@@ -1034,6 +1034,7 @@ def apply_rules(album):
             continue
         rule_sources = getattr(track, 'rule_sources', None) or {}
         tags = {t for md in sources.values() for t in md if not t.startswith('~')}
+        tags |= set(rule_sources)         # set by a rule before: looked at again even if no source has it now
         if base_mode is not None:
             # the album's own values that the switched-off source put into New Value
             tags |= {t for t in track.metadata if not t.startswith('~')}
@@ -1049,7 +1050,10 @@ def apply_rules(album):
             choice = choose(tag, {name: list(md.getall(tag)) for name, md in sources.items()})
             if choice is None:
                 if base_mode == pressings_panel.OFF or (base_mode == pressings_panel.ALBUM_ONLY
-                                                        and tag in PRESSING_TAGS):
+                                                        and tag in PRESSING_TAGS) or tag in rule_sources:
+                    # no source gives it (any more): a value a source rule put there goes too -- the
+                    # file's own value comes back (user: Discogs set to "Album info only" left its
+                    # catalogue number in New Value)
                     _keep_file_value(track, tag)
                     rule_sources.pop(tag, None)
                     changed += 1
