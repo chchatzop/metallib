@@ -1137,7 +1137,10 @@ class MetadataBox(QtWidgets.QTableWidget):
                 tag_diff.add(tag, old=orig_values, new=new_values, removed=removed, top_tags=top_tags_set)
 
             # Always add length tag
-            tag_diff.add('~length', str(orig_metadata.length), str(new_metadata.length), removable=False, readonly=True)
+            # MetalLib: New Value shows the file's own length -- a length is measured from the audio and
+            # never written, so the matched release's length there only looked like a change (user);
+            # a source's length stays in its column, highlighted when far off.
+            tag_diff.add('~length', str(orig_metadata.length), str(orig_metadata.length), removable=False, readonly=True)
             # Add filepath tag if only one file
             if len(files) == 1:
                 if settings['rename_files'] or settings['move_files']:
