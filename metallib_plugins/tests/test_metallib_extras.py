@@ -210,3 +210,13 @@ def test_extras_in_a_folder_past_the_windows_path_limit(tmp_path):
     assert [(e['name'], e['size']) for e in got] == [('folder.jpg', 10)]
     assert got[0]['path'] == os.path.join(deep, 'folder.jpg')          # no long-path prefix in results
     assert fs.short(fs._long(deep)) == deep
+
+
+def test_scene_source_tag_is_not_a_disc_photo_and_a_lone_image_is_front():
+    # user (Absurd - Werwolfthron): the only image, "00-absurd-werwolfthron-cd-flac-2001.jpg", became "CD"
+    ex = _mod()
+    assert ex.guess_stem('00-absurd-werwolfthron-cd-flac-2001.jpg') == ''
+    assert ex.guess_stem('00-band-album-cd-flac-2001-back.jpg') == 'Back'
+    assert ex.guess_stem('cd.jpg') == 'CD' and ex.guess_stem('band-album-cd1-flac-2001.jpg') == 'CD1'
+    assert [e['stem'] for e in ex.plan(_entries('cd.jpg'))] == ['Front']          # the only image: Front
+    assert [e['stem'] for e in ex.plan(_entries('00-grp-proof.jpg'))] == ['Proof']  # unless a proof

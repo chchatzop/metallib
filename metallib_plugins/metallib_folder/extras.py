@@ -91,6 +91,10 @@ def guess_stem(name):
     if m:
         return m.group(1).strip()             # already named the library's way
     low = re.sub(r'[_.\-]+', ' ', base.lower())
+    # A scene release name carries its source: "...-cd-flac-2001" -- that CD is not a disc photo
+    # (Absurd "00-absurd-werwolfthron-cd-flac-2001.jpg" became "CD", user 2026-09-26).
+    low = re.sub(r'\b(?:cd|cdm|cds|cdr|dvd|vinyl|lp|web|tape|cass)\s+'
+                 r'(?=(?:flac|mp3|ape|wv|aac|ogg|alac|dsd|\d{2}bit|(?:19|20)\d\d)\b)', ' ', low)
     words = set(low.split())
     num = _number(re.sub(r'(?:19|20)\d\d', '', low))      # ignore years
     jap = 'Jap. ' if re.search(r'\bjap(an(ese)?)?\b|\bjpn\b', low) else ''
@@ -142,15 +146,16 @@ def clean_stem(name):
 
 def plan(entries, user=None):
     """Tick and stem for every entry: the user's choice (user[path] = {'tick', 'stem'}) where given,
-    else the defaults. Images move; a lone image is Front; proofs, text and other files stay out.
+    else the defaults. Images move; a lone image is Front (unless a proof); proofs, text and other
+    files stay out.
     Unnumbered booklets are numbered in name order; equal stems get " 2", " 3"."""
     user = user or {}
     images = [e for e in entries if e['kind'] == IMAGE]
     lone = len(images) == 1
     for e in entries:
         stem = guess_stem(e['name']) if e['kind'] == IMAGE else ''
-        if e['kind'] == IMAGE and lone and stem in ('', 'Booklet', 'Digi Cover'):
-            stem = 'Front'                    # the only image: the cover, unless its name says otherwise
+        if e['kind'] == IMAGE and lone and not is_proof(e['name']):
+            stem = 'Front'                    # the only image is proposed as the Front whatever its name (user)
         if e['kind'] == IMAGE and not stem:
             stem = clean_stem(e['name'])
         e['guess'] = stem
