@@ -301,7 +301,9 @@ def _loaded_ma(album, cid, result=None, error=None):
     node = build_release(result, version, extra.get('original_date', ''))
     mds = track_metadata(node, fix=partial(_ma_fix, result['album_id'], dict(extra.get('band') or {}),
                                            result.get('lineup') or []))
-    _apply(album, METAL_ARCHIVES, cid, mds, attach, apply_rules)
+    if _apply(album, METAL_ARCHIVES, cid, mds, attach, apply_rules):
+        from . import offer_ma_cover
+        offer_ma_cover(album, result.get('cover_url'))
 
 
 def _loaded_dg(album, cid, result=None, error=None):
@@ -338,11 +340,14 @@ def _loaded_mb(album, cid, document=None, http=None, error=None):
         return
     mds = track_metadata(document, fix=partial(_mb_fix, document))
     secs = [round((t.get('length') or 0) / 1000) for m in document.get('media') or [] for t in m.get('tracks') or []]
-    if not _note_lengths(album, 'MusicBrainz', cid, secs):
+    fits = _note_lengths(album, 'MusicBrainz', cid, secs)
+    if not fits:
         for md in mds:                                  # never offer ids of a release that does not fit
             for tag in [t for t in md if t.startswith('musicbrainz_')]:
                 del md[tag]
-    _apply(album, MUSICBRAINZ, cid, mds, attach, apply_rules)
+    if _apply(album, MUSICBRAINZ, cid, mds, attach, apply_rules) and fits:
+        from . import offer_mb_cover
+        offer_mb_cover(album, cid)
 
 
 def _note_lengths(album, source, cid, secs):
@@ -358,14 +363,15 @@ def _apply(album, source, cid, mds, attach, apply_rules):
         _status,
     )
     if album.id not in _api.tagger.albums:
-        return
+        return False
     if state(album)[source].get('wanted') not in (None, str(cid)):
-        return                          # another pressing was asked for since
+        return False                    # another pressing was asked for since
     n = attach(album, source, mds)
     apply_rules(album)
     set_chosen(album, source, cid)
     _status('%s: pressing %s paired with %d of %d tracks' % (source, cid, n, len(album.tracks)))
     _refresh_panel()
+    return True
 
 
 # -- the widget ------------------------------------------------------------------------------------------

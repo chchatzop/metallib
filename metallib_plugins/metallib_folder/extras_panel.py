@@ -120,6 +120,15 @@ def destination(album):
 _FRONT_FILE_RE = re.compile(r' - (?:\d+-)?00 - Front\.[A-Za-z]{3,4}$')
 
 
+def front_file_kept(album):
+    """Is one of the album's folder images kept as its Front? Then that is the cover and the source
+    covers stay out (metallib_ma asks through tagger.metallib_front_file_kept)."""
+    entries = planned_now(album)
+    if entries is None:
+        entries = planned(album)            # not listed yet by the panel: list now
+    return front_entry(entries) is not None
+
+
 def front_entry(entries):
     return next((e for e in entries if e['tick'] and e['kind'] == IMAGE and e['stem'].lower() == 'front'), None)
 
@@ -452,6 +461,11 @@ class ExtrasPanel(QtWidgets.QWidget):
         else:
             return
         QtCore.QTimer.singleShot(0, self.refresh)
+        # no Front kept any more (unticked, renamed): the better source cover takes over (metallib_ma)
+        choose = getattr(_api.tagger, 'metallib_choose_cover', None)
+        if choose is not None:
+            album = self.album
+            QtCore.QTimer.singleShot(0, lambda: None if front_file_kept(album) else choose(album))
 
     @staticmethod
     def _saved_widths():
@@ -671,6 +685,7 @@ def _save_layout(splitters, *args):
 def install(api, log_factory, tries=100):
     global _panel, _library, _row, _api, _log_factory
     _api, _log_factory = api, log_factory
+    api.tagger.metallib_front_file_kept = front_file_kept    # metallib_ma's cover choice asks
     window = getattr(api.tagger, 'window', None)
     if window is None or not hasattr(window, 'panel'):
         if tries:

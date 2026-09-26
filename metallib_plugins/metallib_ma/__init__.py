@@ -32,6 +32,7 @@ from picard.plugin3.api import (
     OptionsPage,
     PluginApi,
 )
+from picard.util import thread
 
 from .ma_client import (
     MAClient,
@@ -63,6 +64,7 @@ from .discogs_release import (
 )
 from .folder_parse import folder_hints
 from . import (
+    covers,
     edition,
     pools,
     pressings_panel,
@@ -512,15 +514,69 @@ def _build_album(cluster, local, hit, chosen, original_date, band):
 
 
 def _on_cover(album, result=None, error=None):
-    if error or not result or album.id not in _api.tagger.albums:
+    if error or not result:
+        return
+    offer_cover(album, METAL_ARCHIVES, result, album.ma_info['cover_url'])
+
+
+# -- the album cover: the better of Metal Archives' and MusicBrainz' (covers.py) ------------------
+
+_COVERS_ATTR = 'metallib_covers'
+
+
+def offer_cover(album, source, data, url):
+    """A source's cover for the album (the chosen pressing's). The best one becomes the cover."""
+    if not data or album.id not in _api.tagger.albums:
+        return
+    offers = dict(getattr(album, _COVERS_ATTR, None) or {})
+    offers[source] = (data, url)
+    setattr(album, _COVERS_ATTR, offers)
+    _when_loaded(album, partial(choose_cover, album))
+
+
+def choose_cover(album):
+    """Set the best offered cover -- unless the folder's own Front image is kept (Extra files panel):
+    that one is the cover then (metallib_folder embeds it)."""
+    if album.id not in _api.tagger.albums:
+        return
+    kept = getattr(_api.tagger, 'metallib_front_file_kept', None)
+    if kept is not None and kept(album):
+        return
+    from PyQt6 import QtGui
+    offers = getattr(album, _COVERS_ATTR, None) or {}
+    dims = {}
+    for source, (data, url) in offers.items():
+        img = QtGui.QImage.fromData(data)
+        dims[source] = (img.width(), img.height(), len(data))
+    source = covers.best(dims)
+    if source is None:
+        return
+    data, url = offers[source]
+    current = next((img for img in album.metadata.images if img.is_front_image()), None)
+    if current is not None and current.data == data:
         return
     from picard.coverart.image import CoverArtImage
     from picard.coverart.setters import (
         CoverArtSetter,
         CoverArtSetterMode,
     )
-    image = CoverArtImage(url=album.ma_info['cover_url'], types=['front'], data=result)
-    CoverArtSetter(CoverArtSetterMode.REPLACE, image, album, update_orig=True).set_coverart()
+    CoverArtSetter(CoverArtSetterMode.REPLACE, CoverArtImage(url=url, types=['front'], data=data),
+                   album).set_coverart()
+    _api.logger.debug("cover of %r: %s %dx%d", album.metadata['album'], source, *dims[source][:2])
+
+
+def offer_ma_cover(album, cover_url):
+    if cover_url:
+        pools.run(pools.MA, partial(client().fetch_bytes, cover_url),
+                  lambda result=None, error=None: offer_cover(album, METAL_ARCHIVES, result, cover_url)
+                  if not error else None)
+
+
+def offer_mb_cover(album, release_id):
+    if release_id:
+        thread.run_task(partial(covers.caa_front, release_id),
+                        lambda result=None, error=None: offer_cover(album, MUSICBRAINZ, *result)
+                        if result and not error else None)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -588,6 +644,7 @@ def on_mb_album(api, album, metadata, release_node):
              'lengths': [round((t.get('length') or 0) / 1000) for m in media for t in m.get('tracks') or []]}
     pools.run(pools.MA, partial(_background_ma, band, title, local), partial(_on_background_ma, album))
     _when_loaded(album, partial(apply_rules, album))       # see _build_album
+    offer_mb_cover(album, release_node.get('id'))
     start_discogs(album)
     rg = (release_node.get('release-group') or {}).get('id')
     if rg:
@@ -649,6 +706,7 @@ def _on_background_ma(album, result=None, error=None):
         if pressings_panel.blocked(album, METAL_ARCHIVES) or pressings_panel.keep_user_pick(album, METAL_ARCHIVES):
             return
         n = attach(album, METAL_ARCHIVES, mds)
+        offer_ma_cover(album, page.get('cover_url'))
         apply_rules(album)
         _status('Metal Archives: "%s" (%s) paired with %d of %d tracks'
                 % (page['album'], version.get('format', ''), n, len(album.tracks)))
@@ -760,6 +818,8 @@ def _use_mb_release(album, node, fitted=True):
             return
         n = attach(album, MUSICBRAINZ, mds)
         apply_rules(album)
+        if fitted:
+            offer_mb_cover(album, node.get('id'))
         _status('MusicBrainz: "%s" paired with %d of %d tracks%s'
                 % (node.get('title'), n, len(album.tracks), '' if fitted else ' (no exact pressing fit)'))
         _refresh_panel()
@@ -1425,6 +1485,7 @@ def enable(api: PluginApi) -> None:
     _orig_lookup_finished = picard_cluster.Cluster._lookup_finished
     picard_cluster.Cluster._lookup_finished = _cluster_lookup_finished
     api.tagger.metallib_fallback_lookup = fallback_lookup
+    api.tagger.metallib_choose_cover = choose_cover            # metallib_folder: a Front unticked
     api.plugin_config.register_option('discogs_token', '')
     api.plugin_config.register_option(pressings_panel.LAYOUT_OPTION, '')
     api.register_options_page(MetalLibOptionsPage)
