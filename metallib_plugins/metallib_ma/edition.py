@@ -58,8 +58,13 @@ MEDIA_WORDS = {'Digital': 'Digital Media', 'CD': 'CD', 'Vinyl': 'Vinyl', 'Casset
 
 
 def media_values(values, notes='', fallback=''):
-    """-> the media tag values the library way, or None to leave them (nothing recognisable)."""
+    """-> the media tag values the library way, or None to leave them (nothing recognisable).
+    `fallback`: what the folder name says -- a web rip always wins, else it only fills a gap."""
     from .ma_release import format_kind
+    if format_kind(fallback) == 'Digital':
+        # a web rip (the folder name says so) is Digital Media whatever the pressing says, as its
+        # folder name is [WEB] (user, 2026-09-27: 0N0 "Path", Metal Archives lists only the CD)
+        return ['Digital Media']
     values = [v for v in values if v]
     kind = next((format_kind(v) for v in values if format_kind(v)), '') or format_kind(fallback)
     if not kind:

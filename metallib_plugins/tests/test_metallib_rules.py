@@ -101,3 +101,5 @@ def test_media_the_library_way():
     assert ed.media_values(['Cass']) == ['Cassette'] and ed.media_values(['Digital Media']) == ['Digital Media']
     assert ed.media_values(['DVD']) is None                                  # unrecognised: left as it is
     assert ed.media_values([], fallback='Digital') == ['Digital Media']      # nothing: the folder name
+    assert ed.media_values(['CD'], fallback='Digital') == ['Digital Media']  # a web rip wins (user)
+    assert ed.media_values(['Digital Media'], fallback='CD') == ['Digital Media']   # a CD rip only fills gaps
