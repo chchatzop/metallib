@@ -74,6 +74,9 @@ row_filter = None
 # library's pressing tags edition / reissue / remaster / showcat, user).
 always_rows = ()
 
+# Tags that never get a row, even when a file has them (MetalLib: sort names it removes, user).
+hidden_rows = frozenset()
+
 
 @_race_safe(set)
 def source_tag_names(objects):

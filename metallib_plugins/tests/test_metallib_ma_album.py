@@ -579,8 +579,8 @@ def test_plain_tags_keep_list():
                      'comment': 'C', 'language': 'Spanish', 'script': 'Latn', 'rip date': '2012', 'organization': 'O',
                      'barcode': '123', 'isrc': 'I', 'asin': 'A1', '~hidden': 'h'})
     removed = keep.make_plain(md, user={'producer'})
-    assert sorted(removed) == ['asin', 'barcode', 'comment', 'isrc', 'language', 'lyrics', 'organization',
-                               'performer:guitar', 'rip date', 'script', 'writer']
+    assert sorted(removed) == ['albumartistsort', 'asin', 'barcode', 'comment', 'isrc', 'language', 'lyrics',
+                               'organization', 'performer:guitar', 'rip date', 'script', 'writer']   # no sort names (user)
     assert md['producer'] == 'Pr' and md['~hidden'] == 'h'                 # a user pick stays; hidden untouched
     naming = Metadata(edition=['Jap', 'Lim'], reissue='2011', remaster='2013', showcat='1', albumversion='x')
     assert keep.make_plain(naming) == []                                   # the user's naming tags stay

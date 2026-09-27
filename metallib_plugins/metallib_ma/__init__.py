@@ -77,6 +77,7 @@ from .pressings import (
     from_mb,
 )
 from .keep import (
+    HIDDEN_ROWS,
     keeps,
     make_plain,
 )
@@ -1533,6 +1534,7 @@ def disable() -> None:
     from picard.ui.metadatabox import sources as box_sources
     box_sources.row_filter = None
     box_sources.always_rows = ()
+    box_sources.hidden_rows = frozenset()
     pressings_panel.uninstall()
     from picard import cluster as picard_cluster
     if 'album_artist_from_path' in _originals:
@@ -1573,6 +1575,7 @@ def enable(api: PluginApi) -> None:
     box_sources.row_filter = lambda tag: keeps(tag, True)
     # the library's pressing tags always have a row, to type into (user)
     box_sources.always_rows = ('edition', 'reissue', 'remaster', 'showcat')
+    box_sources.hidden_rows = HIDDEN_ROWS
     for name, doc in (('_ma_band_country', 'Band country from Metal Archives, e.g. "Italy".'),
                       ('_ma_band_country_code', 'Band country code from Metal Archives, e.g. "IT".'),
                       ('_ma_band_status', 'Band status from Metal Archives, e.g. "Active".'),

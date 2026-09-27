@@ -46,6 +46,8 @@ from picard.metadata import MULTI_VALUED_JOINER
 from picard.tags import display_tag_name
 from picard.util import format_time
 
+from picard.ui.metadatabox import sources as metallib_sources
+
 
 class TagStatus:
     NONE = 0
@@ -343,6 +345,7 @@ class TagDiff:
             top_tags (set): Set of tags to always be displayed at the top.
         """
         all_tags = set(list(self.old) + list(self.new) + list(self.removed_tags)) | self.extra_tags
+        all_tags -= metallib_sources.hidden_rows      # MetalLib: tags the user never wants to see
         common_tags = [tag for tag in top_tags if tag in all_tags] if top_tags else []
         tag_names = common_tags + sorted(all_tags.difference(common_tags), key=lambda x: display_tag_name(x).lower())
 

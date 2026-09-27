@@ -11,8 +11,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 KEEP = frozenset((
-    # basics, with sort names and every artist of a split listed
-    'title', 'artist', 'album', 'albumartist', 'artistsort', 'albumartistsort', 'artists', 'albumartists',
+    # basics, with every artist of a split listed (no sort names: user, 2026-09-27)
+    'title', 'artist', 'album', 'albumartist', 'artists', 'albumartists',
     # position
     'tracknumber', 'totaltracks', 'discnumber', 'totaldiscs', 'discsubtitle',
     # dates: the pressing's, the first release's
@@ -59,3 +59,7 @@ def make_plain(md, user=()):
 
 
 PLACEHOLDERS = {'catalognumber': '[none]', 'label': '[no label]'}
+
+
+# Tags the tag panel never shows a row for, not even when a file has them (they are removed on save).
+HIDDEN_ROWS = frozenset({'artistsort', 'albumartistsort'})
