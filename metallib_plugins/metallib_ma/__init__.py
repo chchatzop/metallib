@@ -238,6 +238,9 @@ class MetalArchivesAlbum(Album):
         for key in ('country', 'country_code', 'status', 'formed'):
             if band.get(key):
                 metadata['~ma_band_' + key] = band[key]
+        # releasecountry is the BAND's country in this library (user): Metal Archives' column shows it
+        if band.get('country_code'):
+            metadata['releasecountry'] = band['country_code']
 
     @staticmethod
     def _strip_fake_ids(metadata):
@@ -772,6 +775,8 @@ def _ma_fix(ma_album_id, band, lineup, md):
     for key in ('country', 'country_code', 'status', 'formed'):      # %_ma_band_country_code% etc.
         if band.get(key):
             md['~ma_band_' + key] = band[key]
+    if band.get('country_code'):
+        md['releasecountry'] = band['country_code']     # the column shows what the tag will hold (user)
     _apply_lineup(lineup, md)
 
 
@@ -969,7 +974,9 @@ def _band_country(md, fallback_md=None, orig=None):
 def _set_band_country(md, sources, user, fallback_md=None, orig=None):
     # The pressing's own country stays script-only (~pressingcountry, e.g. "(Jap. Ed.)");
     # the releasecountry TAG is the band's (user).
-    choice = choose('releasecountry', {n: list(m.getall('releasecountry')) for n, m in (sources or {}).items()})
+    # the PRESSING's country, from the release sources -- not Metal Archives' (that is the band's)
+    choice = choose('releasecountry', {n: list(m.getall('releasecountry')) for n, m in (sources or {}).items()
+                                       if n != METAL_ARCHIVES})
     if choice:
         md['~pressingcountry'] = choice[1][0]
     if 'releasecountry' not in user:
