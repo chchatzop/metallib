@@ -156,35 +156,64 @@ def _match_files(self, files):
         return _originals['match_files'](self, files)
     with self.tagger.window.metadata_box.ignore_updates:
         resolve(self, files)
-    # The first match after the album finished loading is the lookup's; judge the release once.
-    # Later calls (files dragged onto the album by hand) are the user's decision.
-    if not getattr(self, '_metallib_checked', False):
-        self._metallib_checked = True
+    # The matches right after the album finished loading are the lookup's -- several clusters can
+    # land on the same release, one after another -- so the release is judged again for a little
+    # while. Later calls (files dragged onto the album by hand) are the user's decision.
+    import time
+    first = getattr(self, '_metallib_checked', None)
+    # files a Lookup just moved here (marked by metallib_ma) are always judged -- a second Lookup of
+    # the same clusters landed them on the same wrong release long after the window (user)
+    via_lookup = any(time.time() - getattr(f, 'metallib_via_lookup', 0) < LOOKUP_WINDOW_S for f in files)
+    if first is None or time.time() - first < LOOKUP_WINDOW_S or via_lookup:
+        if first is None:
+            self._metallib_checked = time.time()
         try:
             check_album(self)
         except Exception:
             _api.logger.exception("wrong-release check failed for %r", self)    # never break loading
 
 
+LOOKUP_WINDOW_S = 20       # files arriving this soon after the first match came with the lookup
+SETTLE_MS = 1500            # wait for the other clusters of the same lookup before judging
+
+
 def check_album(album):
-    """Wrong-release guard: see release_check.check_release."""
+    """Wrong-release guard: see release_check.check_release. Judged a moment later, on the album as
+    it is then (user, 3 Quarters Dead: four clusters landed on one release one after another; the
+    files that came after the check were left in the removed album's "Unmatched Files", invisible)."""
+    QtCore.QTimer.singleShot(SETTLE_MS, partial(_judge, album))
+
+
+def _judge(album):
+    if album.id not in _api.tagger.albums:
+        return
     files = [f for f in album.iterfiles() if f.state != File.State.REMOVED]
     placed = [f for t in album.tracks for f in t.files]
-    artists = [f.orig_metadata['albumartist'] or f.orig_metadata['artist'] for f in files]
-    verdict, reason = check_release(len(files), len(placed), len(album.tracks), artists,
-                                    album.metadata['albumartist'], similarity2)
     label = '"%s" by %s' % (album.metadata['album'], album.metadata['albumartist'])
+    # Files from another folder than the ones that fit are strays -- another cluster the lookup put
+    # here. The album is judged on its own files only; the strays go back to clustering.
+    home = {os.path.dirname(f.filename) for f in placed}
+    strays = [f for f in files if f not in placed and os.path.dirname(f.filename) not in home] if home else []
+    own = [f for f in files if f not in strays]
+    artists = [f.orig_metadata['albumartist'] or f.orig_metadata['artist'] for f in own]
+    verdict, reason = check_release(len(own), len(placed), len(album.tracks), artists,
+                                    album.metadata['albumartist'], similarity2)
     if verdict == WRONG:
         _api.logger.info("wrong release %s: %s", label, reason)
-        # Not from inside the album's own load: let it finish, then take it apart.
-        QtCore.QTimer.singleShot(0, lambda: _send_back(album, files, 'wrong release %s: %s' % (label, reason)))
-    elif verdict == SUSPECT:
+        _send_back(album, files, 'wrong release %s: %s' % (label, reason))
+        return
+    if strays:
+        reason = 'not on %s (another folder; its own %d files fit)' % (label, len(placed))
+        _api.logger.info("strays on %s: %d files", label, len(strays))
+        _send_back(album, strays, reason, keep_album=True)
+    if verdict == SUSPECT:
         album.metadata['~placement'] = 'suspect release'
         album.metadata['~placement_reason'] = reason
         album.update(update_tracks=False)
 
 
-def _send_back(album, files, reason):
+def _send_back(album, files, reason, keep_album=False):
+    """Files back to clustering (then Metal Archives); the album goes too unless keep_album."""
     tagger = album.tagger
     if album.id not in tagger.albums:
         return                                  # removed by the user meanwhile
@@ -192,7 +221,14 @@ def _send_back(album, files, reason):
     for f in files:
         f.move(tagger.unclustered_files)
         _set_flag(f, UNPLACED, reason)
-    tagger.remove_album(album)
+    if not keep_album:
+        # anything that reached the album meanwhile goes back too, never left behind in it
+        late = [f for f in album.iterfiles() if f.state != File.State.REMOVED and f not in files]
+        for f in late:
+            f.move(tagger.unclustered_files)
+            _set_flag(f, UNPLACED, reason)
+        files += late
+        tagger.remove_album(album)
 
     def clustered():
         # Try Metal Archives for them (the MetalLib MA plugin; once per set of files, so no loop).

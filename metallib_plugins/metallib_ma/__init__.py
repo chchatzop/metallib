@@ -1367,7 +1367,13 @@ def fallback_lookup(cluster, why):
 _orig_lookup_finished = None
 
 
+VIA_LOOKUP_ATTR = 'metallib_via_lookup'     # on a File: when a Lookup moved it (metallib_tracks judges it)
+
+
 def _cluster_lookup_finished(self, document, http, error):
+    import time
+    for f in list(self.files):
+        setattr(f, VIA_LOOKUP_ATTR, time.time())
     _orig_lookup_finished(self, document, http, error)
     if error:
         return                                  # MusicBrainz unreachable: not "MusicBrainz has nothing"

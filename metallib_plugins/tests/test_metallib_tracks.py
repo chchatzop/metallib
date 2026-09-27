@@ -378,8 +378,22 @@ class TestWrongReleaseGuardInPicard(TestResolveInPicard):
     def test_guard_runs_once_not_on_manual_drops(self):
         self.plugin._match_files(self.album, [self._aghar('k.flac', 'King Winter', '4:54')])
         self.tagger.remove_album.reset_mock()
+        self.album._metallib_checked -= self.plugin.LOOKUP_WINDOW_S + 1     # a drop by hand, later
         self.plugin._match_files(self.album, [self._aghar('x.flac', 'Other', '1:00')])
         self.tagger.remove_album.assert_not_called()
+
+    def test_another_folders_files_go_back_the_albums_own_stay(self):
+        # user, 3 Quarters Dead: several clusters landed on one release; its own files fit
+        self.album.metadata['albumartist'] = '1349'
+        own = [self._file('a/%d.flac' % i, t['title'], '%d:%02d' % divmod(t['length'] // 1000, 60))
+               for i, t in enumerate(TRACKS[:4])]
+        stray = [self._file('b/%d.flac' % i, 'Something Else %d' % i, '3:00') for i in range(6)]
+        for f in own + stray:
+            f.orig_metadata['artist'] = '1349'
+        self.plugin._match_files(self.album, own + stray)
+        self.tagger.remove_album.assert_not_called()                          # the album stays
+        self.assertTrue(all(f.parent_item is self.tagger.unclustered_files for f in stray))
+        self.assertTrue(all(f.parent_item is not self.tagger.unclustered_files for f in own))
 
     def test_right_release_is_kept(self):
         self.album.metadata['albumartist'] = '1349'
