@@ -19,7 +19,10 @@ import os
 import re
 import threading
 
-from PyQt6 import QtWidgets
+from PyQt6 import (
+    QtCore,
+    QtWidgets,
+)
 
 from picard.album import (
     Album,
@@ -441,6 +444,14 @@ def _on_search(cluster, local, result=None, error=None):
          lambda i: _start_resolve(cluster, local, ranked[i][1]), cluster, local)
 
 
+def _lookup_context(local):
+    files = local.get('files') or []
+    folders = sorted({os.path.dirname(f.filename) for f in files})
+    head = '"%s" by %s — %d file%s' % (local.get('album') or '?', local.get('band') or '?', len(files),
+                                       '' if len(files) == 1 else 's')
+    return head + ('\n' + '\n'.join(folders) if folders else '')
+
+
 def _ask(title, headers, rows, then, cluster, local):
     """The picker, opened OUTSIDE the task callback that needs it (audit part 1 L4): a dialog opened
     inside Picard's callback batch froze every other completion -- file loads, saves, the tag panel --
@@ -451,7 +462,7 @@ def _ask(title, headers, rows, then, cluster, local):
         return _defer(cluster, local, (title, headers, rows, then))
 
     def open_it():
-        i = _pick(title, headers, rows)
+        i = _pick(title, headers, rows, context=_lookup_context(local))
         if i is not None and not _gone(cluster, local):
             then(i)
     QtCore.QTimer.singleShot(0, open_it)
@@ -1317,11 +1328,19 @@ class MetalLibOptionsPage(OptionsPage):
         self.api.plugin_config['discogs_token'] = self.token.text().strip()
 
 
-def _pick(title, headers, rows, preselect=0):
-    """Modal list picker; returns the chosen row index or None."""
+def _pick(title, headers, rows, preselect=0, context=''):
+    """Modal list picker; returns the chosen row index or None. `context`: which files it is for."""
     dialog = QtWidgets.QDialog(_api.tagger.window)
     dialog.setWindowTitle('MetalLib — ' + title)
     layout = QtWidgets.QVBoxLayout(dialog)
+    if context:
+        # which album / folder this is about -- a picker can come up for any of several lookups (user)
+        about = QtWidgets.QLabel(context)
+        about.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        font = about.font()
+        font.setBold(True)
+        about.setFont(font)
+        layout.addWidget(about)
     layout.addWidget(QtWidgets.QLabel(title))
     table = QtWidgets.QTableWidget(len(rows), len(headers))
     table.setHorizontalHeaderLabels(headers)
