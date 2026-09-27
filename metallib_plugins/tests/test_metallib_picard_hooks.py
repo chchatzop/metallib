@@ -43,6 +43,10 @@ HOOKS = [
     (session_loader.AlbumManager, 'load_album_with_strategy', ['self', 'album_id', 'cached_node'],
      'metallib_ma: session restore'),
     (session_loader.AlbumManager, '_build_from_cache', ['self', 'album_id', 'node'], 'metallib_ma: session restore'),
+    (picard_tagger.Tagger, '_apply_cluster', ['self', 'file_cluster'],
+     'metallib_tracks: one cluster per album folder'),
+    (picard_tagger.Tagger, 'load_cluster', ['self', 'name', 'artist'],
+     'metallib_tracks: one cluster per album folder (mirrors it)'),
     (basetreeview.BaseTreeView, '_set_header_labels', ['self', 'update_column_count'],
      'metallib_tracks: the File column appears without a restart (called, not replaced)'),
 ]

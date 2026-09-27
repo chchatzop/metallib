@@ -645,3 +645,13 @@ def test_fingerprint_placement_does_not_wait_forever(monkeypatch):
     assert len(resolved) == 1 and '1 could not be fingerprinted' in messages[-1]
     plugin._fingerprinted(album, bad, run)               # a late answer: placed only once
     assert len(resolved) == 1
+
+
+def test_album_folder_for_clustering():
+    # user, Azazel: two rips of one album in two folders are two clusters; disc folders are one album
+    plugin = _load_tracks_plugin()
+    a = plugin.album_folder(r'X:\in\Azazel-Witches-CD-FLAC-2015-COCCYX\01.flac')
+    b = plugin.album_folder(r'X:\in\Azazel-Witches-CD-FLAC-2015-GRAVEWISH\01.flac')
+    assert a != b
+    assert plugin.album_folder(r'X:\in\Band-Album\CD1\01.flac') == plugin.album_folder(r'X:\in\Band-Album\CD2\01.flac')
+    assert plugin.album_folder(r'X:\in\Band-Album\Disc 2\01.flac') == plugin.album_folder(r'X:\in\Band-Album\x.flac')

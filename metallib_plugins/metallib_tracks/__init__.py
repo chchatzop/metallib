@@ -374,6 +374,48 @@ def _cluster_add_files(self, files, new_album=True):
         renumber_cluster(self)
 
 
+# -- one cluster per album folder (user, 2026-09-27) ---------------------------------------------------
+# Picard clusters by the album / artist tags: two copies of an album in two folders (two scene rips)
+# became one cluster of 21 files that no 10-track pressing fits. Each album folder now gets its own
+# cluster; disc folders ("CD1", "Disc 2") belong to their album folder.
+
+_DISC_DIR_RE = re.compile(r'^(?:cd|disc|disk)\s*\d{1,2}$', re.IGNORECASE)
+
+
+def album_folder(path):
+    folder = os.path.dirname(path)
+    name = os.path.basename(folder).strip()
+    if _DISC_DIR_RE.match(name.replace('_', ' ')):
+        folder = os.path.dirname(folder)
+    return os.path.normcase(os.path.normpath(folder))
+
+
+def _apply_cluster(file_cluster):
+    tagger = _api.tagger
+    by_folder = {}
+    for f in file_cluster.files:
+        by_folder.setdefault(album_folder(f.filename), []).append(f)
+    for folder, files in by_folder.items():
+        if len(files) > 1:
+            cluster = _cluster_for(tagger, file_cluster.title, file_cluster.artist, folder)
+        else:
+            cluster = tagger.unclustered_files
+        cluster.add_files(files)
+
+
+def _cluster_for(tagger, name, artist, folder):
+    """A cluster of that album and artist holding this folder's files (or none yet), else a new one."""
+    from picard.cluster import Cluster
+    for cluster in tagger.clusters:
+        cm = cluster.metadata
+        if name == cm['album'] and artist == cm['albumartist'] and                 all(album_folder(f.filename) == folder for f in cluster.files):
+            return cluster
+    cluster = Cluster(name, artist)
+    tagger.clusters.append(cluster)
+    tagger.cluster_added.emit(cluster)
+    return cluster
+
+
 def enable(api: PluginApi) -> None:
     global _api
     _api = api
@@ -387,6 +429,8 @@ def enable(api: PluginApi) -> None:
     _originals['cluster_add_files'] = Cluster.add_files
     Cluster.add_files = _cluster_add_files
     api.register_file_post_addition_to_track_processor(on_file_added_to_track)
+    _originals['apply_cluster'] = api.tagger._apply_cluster
+    api.tagger._apply_cluster = _apply_cluster             # one cluster per album folder
     api.register_album_action(PlacementReport)
     api.register_album_action(PlaceByFingerprint)
     api.register_script_variable('_placement', documentation='"renumbered", "unplaced" or empty.')
@@ -405,3 +449,6 @@ def disable() -> None:
     if 'cluster_add_files' in _originals:
         from picard.cluster import Cluster
         Cluster.add_files = _originals.pop('cluster_add_files')
+    if 'apply_cluster' in _originals and _api is not None:
+        if getattr(_api.tagger, '_apply_cluster', None) is _apply_cluster:
+            del _api.tagger._apply_cluster                 # back to Picard's own method
