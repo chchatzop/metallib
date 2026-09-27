@@ -52,13 +52,14 @@ def make_plain(md, user=()):
     # MusicBrainz's "there is none" placeholders are not values
     removed += [t for t, none in PLACEHOLDERS.items()
                 if t in md and t not in user and t not in removed
-                and all(v.strip().lower() == none for v in md.getall(t))]
+                and all(v.strip().lower() in (none, 'none', 'n/a') if t == 'catalognumber'
+                        else v.strip().lower() == none for v in md.getall(t))]
     for tag in removed:
         del md[tag]
     return removed
 
 
-PLACEHOLDERS = {'catalognumber': '[none]', 'label': '[no label]'}
+PLACEHOLDERS = {'catalognumber': '[none]', 'label': '[no label]'}   # see also rules.PLACEHOLDERS
 
 
 # Tags the tag panel never shows a row for, not even when a file has them (they are removed on save).

@@ -103,3 +103,11 @@ def test_media_the_library_way():
     assert ed.media_values([], fallback='Digital') == ['Digital Media']      # nothing: the folder name
     assert ed.media_values(['CD'], fallback='Digital') == ['Digital Media']  # a web rip wins (user)
     assert ed.media_values(['Digital Media'], fallback='CD') == ['Digital Media']   # a CD rip only fills gaps
+
+
+def test_a_placeholder_is_no_value():
+    # user, A Feast For Crows: MusicBrainz "[no label]" beat Discogs' real label
+    assert choose('label', {'MusicBrainz': ['[no label]'], 'Discogs': ['Imperishable Recordings']}) == \
+        ('Discogs', ['Imperishable Recordings'])
+    assert choose('catalognumber', {'Discogs': ['none']}) is None
+    assert choose('label', {'MusicBrainz': ['Burnout Records'], 'Discogs': ['X']})[0] == 'MusicBrainz'

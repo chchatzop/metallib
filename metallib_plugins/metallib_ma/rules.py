@@ -66,12 +66,22 @@ def _year(value):
     return int(m.group(1)) if m else 0
 
 
+PLACEHOLDERS = {'catalognumber': {'[none]', 'none', 'n/a'}, 'label': {'[no label]'}}
+
+
+def is_placeholder(tag, value):
+    return (value or '').strip().lower() in PLACEHOLDERS.get(tag, ())
+
+
 def choose(tag, source_values):
     """source_values: {source name: [values]} (a source may be missing or empty).
     -> (source name, values) for New Value, or None when no source has the tag."""
     if tag in POSITION_TAGS:
         return None
-    have = {name: vals for name, vals in source_values.items() if vals and any(v for v in vals)}
+    # a placeholder ("[no label]", "[none]", Discogs' "none") is no value: the next source fills in
+    # (user, A Feast For Crows: MusicBrainz' "[no label]" beat Discogs' "Imperishable Recordings")
+    have = {name: vals for name, vals in source_values.items()
+            if vals and any(v and not is_placeholder(tag, v) for v in vals)}
     if not have:
         return None
     if tag in ORIGINAL_TAGS:
